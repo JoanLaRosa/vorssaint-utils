@@ -8,6 +8,7 @@ struct SuperKeySettings: View {
     @ObservedObject private var permissions = Permissions.shared
     @ObservedObject private var superKey = SuperKeyService.shared
     @AppStorage(DefaultsKey.superKeyEnabled) private var enabled = false
+    @AppStorage(DefaultsKey.superKeySource) private var sourceRaw = SuperKeySource.capsLock.rawValue
     @AppStorage(DefaultsKey.superKeyModifiers) private var modifierStorage =
         SuperKeySupport.defaultModifierStorageValue
     @AppStorage(DefaultsKey.superKeySoloAction) private var soloActionRaw = SuperKeySoloAction.none.rawValue
@@ -31,13 +32,18 @@ struct SuperKeySettings: View {
     var body: some View {
         Form {
             Section(text.pageTitle) {
-                Toggle(text.enableToggle, isOn: $enabled)
+                Toggle(text.pageTitle, isOn: $enabled)
                     .onChange(of: enabled) { _, value in
                         SuperKeyService.shared.syncWithPreferences()
                         guard value, !permissions.accessibility else { return }
                         permissions.requestAccessibility()
                         permissions.openAccessibilitySettings()
                     }
+                Picker(text.pageTitle, selection: sourceBinding) {
+                    ForEach(SuperKeySource.allCases) { source in
+                        Text(text.sourceLabel(source)).tag(source)
+                    }
+                }
                 Text(text.enableCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -52,7 +58,9 @@ struct SuperKeySettings: View {
             Section(text.soloSection) {
                 Picker(text.soloSection, selection: soloBinding) {
                     Text(text.soloNothing).tag(SuperKeySoloAction.none)
-                    Text(text.soloCapsLock).tag(SuperKeySoloAction.capsLock)
+                    if source == .capsLock {
+                        Text(text.soloCapsLock).tag(SuperKeySoloAction.capsLock)
+                    }
                     Text(text.soloInputSource).tag(SuperKeySoloAction.inputSource)
                     Text(text.soloEscape).tag(SuperKeySoloAction.escape)
                 }
@@ -79,7 +87,9 @@ struct SuperKeySettings: View {
     private var diagram: some View {
         HStack(spacing: 10) {
             VStack(spacing: 3) {
-                keyCap(text.capsLockKey, symbol: "capslock", wide: true)
+                keyCap(text.sourceLabel(source),
+                       symbol: source == .capsLock ? "capslock" : nil,
+                       wide: true)
                 Text(text.holdHint)
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
@@ -152,6 +162,20 @@ struct SuperKeySettings: View {
 
     private var selectedModifiers: GlobalShortcutModifiers {
         SuperKeySupport.modifiers(from: modifierStorage)
+    }
+
+    private var source: SuperKeySource { SuperKeySource.sanitized(sourceRaw) }
+
+    private var sourceBinding: Binding<SuperKeySource> {
+        Binding {
+            source
+        } set: { source in
+            sourceRaw = source.rawValue
+            if source != .capsLock, SuperKeySoloAction.sanitized(soloActionRaw) == .capsLock {
+                soloActionRaw = SuperKeySoloAction.none.rawValue
+            }
+            SuperKeyService.shared.syncWithPreferences()
+        }
     }
 
     private func toggle(_ modifier: GlobalShortcutModifiers) {

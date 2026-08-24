@@ -10547,13 +10547,13 @@ struct MetricsTests {
         let superSpace = GlobalShortcut(keyCode: Int64(kVK_Space), modifiers: .validMask)
         let customSuperSpace = GlobalShortcut(keyCode: Int64(kVK_Space),
                                               modifiers: [.control, .option, .command])
-        expect(superSpace.superKeyAlternative(capsLockLabel: "Caps Lock",
-                                              superKeyModifiers: .validMask) == "Caps Lock + Space"
+        expect(superSpace.superKeyAlternative(sourceLabel: "Right ⌘",
+                                              superKeyModifiers: .validMask) == "Right ⌘ + Space"
                 && customSuperSpace.superKeyAlternative(
-                    capsLockLabel: "Caps Lock",
-                    superKeyModifiers: [.control, .option, .command]) == "Caps Lock + Space"
+                    sourceLabel: "Right ⌘",
+                    superKeyModifiers: [.control, .option, .command]) == "Right ⌘ + Space"
                 && GlobalShortcut.commandBarDefault.superKeyAlternative(
-                    capsLockLabel: "Caps Lock",
+                    sourceLabel: "Right ⌘",
                     superKeyModifiers: [.control, .option, .command]) == nil,
                "the shortcut editor follows the configured Super key modifiers")
 
@@ -10706,8 +10706,14 @@ struct MetricsTests {
                 .compactMap { $0.value as? String }
             expect(superKeyValues.count == 15 && superKeyValues.allSatisfy { !$0.isEmpty },
                    "every super key string is set for \(language.rawValue)")
+            let superKeyStrings = FeatureStrings.superKey(language)
             expect(superKeyValues.allSatisfy { !$0.contains("—") }
-                    && FeatureStrings.superKey(language).panelCaptionFormat.contains("%@"),
+                    && superKeyStrings.rightKeyFormat.contains("%@")
+                    && superKeyStrings.panelCaptionFormat.contains("%1$@")
+                    && superKeyStrings.panelCaptionFormat.contains("%2$@")
+                    && SuperKeySource.allCases.allSatisfy {
+                        !superKeyStrings.sourceLabel($0).isEmpty
+                    },
                    "super key strings keep their format and avoid em-dashes (\(language.rawValue))")
             let shortcutValues = Mirror(reflecting: FeatureStrings.shortcuts(language)).children
                 .compactMap { $0.value as? String }
@@ -13432,6 +13438,9 @@ struct MetricsTests {
 
         expect(Defaults.registeredDefaults[DefaultsKey.superKeyEnabled] as? Bool == false,
                "the super key ships off by default")
+        expect(Defaults.registeredDefaults[DefaultsKey.superKeySource] as? String
+                == SuperKeySource.capsLock.rawValue,
+               "the super key keeps Caps Lock as its default source")
         expect(Defaults.registeredDefaults[DefaultsKey.superKeyModifiers] as? String
                 == SuperKeySupport.defaultModifierStorageValue,
                "the super key starts with all four modifiers")
@@ -13440,10 +13449,13 @@ struct MetricsTests {
                "a tap on its own does nothing until the user picks something")
         expect(Defaults.registeredDefaults[DefaultsKey.panelControlSuperKey] as? Bool == true,
                "the super key panel row ships visible like its siblings")
-        expect(Defaults.registeredDefaults[DefaultsKey.superKeyMappingApplied] == nil,
-               "the mapping flag is machine state, so it is never registered and never backed up")
+        expect(Defaults.registeredDefaults[DefaultsKey.superKeyMappingApplied] == nil
+                && Defaults.registeredDefaults[DefaultsKey.superKeyMappedSource] == nil,
+               "mapping recovery state is never registered or backed up")
         expect(!SettingsBackupSupport.exportKeys().contains(DefaultsKey.superKeyMappingApplied)
+                && !SettingsBackupSupport.exportKeys().contains(DefaultsKey.superKeyMappedSource)
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.superKeyEnabled)
+                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.superKeySource)
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.superKeyModifiers)
                 && SettingsBackupSupport.exportKeys().contains(DefaultsKey.superKeySoloAction),
                "the Super key preferences travel in a backup, the mapping state stays behind")
@@ -13461,6 +13473,17 @@ struct MetricsTests {
                 && SuperKeySoloAction.sanitized("nonsense") == SuperKeySoloAction.none
                 && SuperKeySoloAction.sanitized(nil) == SuperKeySoloAction.none,
                "a stored solo action is trusted only when the app still knows it")
+        expect(SuperKeySource.sanitized("rightCommand") == .rightCommand
+                && SuperKeySource.sanitized("nonsense") == .capsLock
+                && SuperKeySource.sanitized(nil) == .capsLock
+                && SuperKeySource.capsLock.usage == 0x700000039
+                && SuperKeySource.rightControl.usage == 0x7000000E4
+                && SuperKeySource.rightShift.usage == 0x7000000E5
+                && SuperKeySource.rightOption.usage == 0x7000000E6
+                && SuperKeySource.rightCommand.usage == 0x7000000E7
+                && Set(SuperKeySource.allCases.map(\.usage)).count == SuperKeySource.allCases.count
+                && Set(SuperKeySource.allCases.map(\.keyCode)).count == SuperKeySource.allCases.count,
+               "stored sources are validated and each supported key has distinct HID data")
         expect(SuperKeySupport.modifiers(from: "control+option+command")
                 == [.control, .option, .command]
                 && SuperKeySupport.modifiers(from: "shift") == .validMask
@@ -13513,8 +13536,10 @@ struct MetricsTests {
                                                      enabledIDs: ["abc"]) == nil,
                "input sources cycle through the enabled system list without a hard-coded shortcut")
 
-        let capsMapping = SuperKeyMapping(source: SuperKeySupport.capsLockUsage,
+        let capsMapping = SuperKeyMapping(source: SuperKeySource.capsLock.usage,
                                           destination: SuperKeySupport.triggerUsage)
+        let rightCommandMapping = SuperKeyMapping(source: SuperKeySource.rightCommand.usage,
+                                                  destination: SuperKeySupport.triggerUsage)
         let noActionMapping = SuperKeyMapping(source: SuperKeySupport.noActionUsage,
                                               destination: SuperKeySupport.triggerUsage)
         let foreignMapping = SuperKeyMapping(source: 0x700000064, destination: 0x700000035)
@@ -13523,24 +13548,33 @@ struct MetricsTests {
         expect(SuperKeySupport.mappings(enablingSuperKey: true, existing: [foreignMapping])
                 == [capsMapping, foreignMapping],
                "a mapping the user set up elsewhere survives turning the feature on")
+        expect(SuperKeySupport.mappings(enablingSuperKey: true,
+                                        existing: [capsMapping, foreignMapping],
+                                        source: .rightCommand,
+                                        ownedSource: .capsLock)
+                == [rightCommandMapping, foreignMapping],
+               "changing sources removes the old owned mapping before adding the new one")
         expect(SuperKeySupport.mappings(enablingSuperKey: false,
                                         existing: [capsMapping, foreignMapping],
-                                        ownsExistingMapping: true)
+                                        ownedSource: .capsLock)
                 == [foreignMapping],
                "turning it off removes only the entry this feature owns")
-        let foreignCapsMapping = SuperKeyMapping(source: SuperKeySupport.capsLockUsage,
+        let foreignCapsMapping = SuperKeyMapping(source: SuperKeySource.capsLock.usage,
                                                  destination: 0x700000029)
-        expect(SuperKeySupport.hasMappingConflict(in: [foreignCapsMapping],
-                                                  ownsExistingMapping: false)
+        let foreignRightCommandMapping = SuperKeyMapping(source: SuperKeySource.rightCommand.usage,
+                                                         destination: 0x700000029)
+        expect(SuperKeySupport.hasMappingConflict(in: [foreignCapsMapping])
                 && SuperKeySupport.mappings(enablingSuperKey: true,
                                             existing: [foreignCapsMapping]) == [foreignCapsMapping]
                 && SuperKeySupport.mappings(enablingSuperKey: false,
                                             existing: [foreignCapsMapping]) == [foreignCapsMapping],
                "an existing Caps Lock mapping is refused and preserved in both directions")
-        expect(SuperKeySupport.hasMappingConflict(in: [capsMapping],
-                                                  ownsExistingMapping: false)
+        expect(SuperKeySupport.hasMappingConflict(in: [foreignRightCommandMapping],
+                                                  source: .rightCommand),
+               "an existing mapping on a selected right-side source blocks activation")
+        expect(SuperKeySupport.hasMappingConflict(in: [capsMapping])
                 && !SuperKeySupport.hasMappingConflict(in: [capsMapping],
-                                                       ownsExistingMapping: true)
+                                                       ownedSource: .capsLock)
                 && SuperKeySupport.mappings(enablingSuperKey: true,
                                             existing: [capsMapping]) == [capsMapping],
                "an identical external Caps Lock mapping is not claimed without ownership proof")
@@ -13550,7 +13584,7 @@ struct MetricsTests {
                 == [capsMapping, noActionMapping, foreignMapping]
                 && SuperKeySupport.mappings(enablingSuperKey: false,
                                             existing: [capsMapping, noActionMapping, foreignMapping],
-                                            ownsExistingMapping: true)
+                                            ownedSource: .capsLock)
                 == [foreignMapping],
                "the no-action mapping belongs to the feature and leaves with it")
         expect(SuperKeySupport.mappingArgument([capsMapping])
@@ -13638,18 +13672,22 @@ struct MetricsTests {
         expect(SuperKeySupport.consistentMappings(
             ownedDifferenceReport,
             property: SuperKeySupport.userMappingProperty,
-            ownsExistingMapping: true
+            ownedSource: .capsLock
         ) == [foreignMapping], "a newly connected keyboard can converge when only the owned mapping differs")
 
-        let disabledCaps = SuperKeyMapping(source: SuperKeySupport.capsLockUsage,
+        let disabledCaps = SuperKeyMapping(source: SuperKeySource.capsLock.usage,
                                            destination: SuperKeySupport.noActionUsage)
+        let disabledRightCommand = SuperKeyMapping(source: SuperKeySource.rightCommand.usage,
+                                                   destination: SuperKeySupport.noActionUsage)
         let disabledControl = SuperKeyMapping(source: 0x7000000E0,
                                               destination: SuperKeySupport.noActionUsage)
         expect(SuperKeySupport.canMapNoAction(from: [disabledCaps])
                 && !SuperKeySupport.canMapNoAction(from: [disabledControl])
                 && !SuperKeySupport.canMapNoAction(from: [disabledCaps, disabledControl])
+                && SuperKeySupport.canMapNoAction(from: [disabledRightCommand],
+                                                  source: .rightCommand)
                 && !SuperKeySupport.canMapNoAction(from: []),
-               "the shared no-action sentinel is recovered only when Caps Lock owns it")
+               "the shared no-action sentinel is recovered only when the source owns it")
         expect(SuperKeySupport.modifierMappingsAllowSuperKey([])
                 && SuperKeySupport.modifierMappingsAllowSuperKey([disabledControl])
                 && SuperKeySupport.modifierMappingsAllowSuperKey([disabledCaps])
@@ -13796,8 +13834,8 @@ struct MetricsTests {
         expect(strandedState.decide(.otherKey) == .pass,
                "a key held while the tap goes away cannot leave typing stuck in modifiers")
         var unmappedKeyboardState = SuperKeySupport.State()
-        expect(unmappedKeyboardState.decide(.capsLock) == .interceptAndRemap,
-               "a raw caps lock is intercepted while that keyboard's mapping is repaired")
+        expect(unmappedKeyboardState.decide(.sourceKey) == .interceptAndRemap,
+               "a raw source key is intercepted while that keyboard's mapping is repaired")
 
         // MARK: Mouse app exceptions (issue #358)
 

@@ -155,8 +155,9 @@ enum SettingsDirectory {
                 SettingsDirectoryItem(page: .superKey,
                                       title: FeatureStrings.superKey(language).pageTitle,
                                       icon: "capslock",
-                                      keywords: [FeatureStrings.superKey(language).capsLockKey,
-                                                 FeatureStrings.superKey(language).enableToggle]),
+                                      keywords: SuperKeySource.allCases.map {
+                                          FeatureStrings.superKey(language).sourceLabel($0)
+                                      }),
                 SettingsDirectoryItem(page: .textSnippets,
                                       title: FeatureStrings.snippets(language).pageTitle,
                                       icon: "text.append",

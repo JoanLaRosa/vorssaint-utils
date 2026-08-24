@@ -6,9 +6,9 @@ import Foundation
 struct SuperKeyStrings {
     let pageTitle: String
     let hubDescription: String
-    let enableToggle: String
     let enableCaption: String
     let capsLockKey: String
+    let rightKeyFormat: String
     let holdHint: String
     let soloSection: String
     let soloCaption: String
@@ -42,12 +42,17 @@ extension FeatureStrings {
 }
 
 extension SuperKeyStrings {
+    func sourceLabel(_ source: SuperKeySource) -> String {
+        guard let symbol = source.symbol else { return capsLockKey }
+        return String(format: rightKeyFormat, symbol)
+    }
+
     static let enUS = SuperKeyStrings(
         pageTitle: "Super key",
-        hubDescription: "Turns Caps Lock into the modifier combination you choose.",
-        enableToggle: "Use Caps Lock as the super key",
+        hubDescription: "Turns one key into the modifier combination you choose.",
         enableCaption: "Hold it and press any key. Choose one or more modifiers below.",
         capsLockKey: "Caps Lock",
+        rightKeyFormat: "Right %@",
         holdHint: "Hold",
         soloSection: "A tap on its own",
         soloCaption: "What a quick tap does when no other key is pressed.",
@@ -55,17 +60,17 @@ extension SuperKeyStrings {
         soloCapsLock: "Turn capitals on and off",
         soloEscape: "Press Escape",
         activeNow: "Working now",
-        panelCaptionFormat: "Caps Lock holds %@.",
+        panelCaptionFormat: "%1$@ holds %2$@.",
         manageButton: "Set up…",
         soloInputSource: "Switch input source; hold for Caps Lock"
     )
 
     static let ptBR = SuperKeyStrings(
         pageTitle: "Tecla super",
-        hubDescription: "Transforma o Caps Lock na combinação de modificadores que você escolher.",
-        enableToggle: "Usar o Caps Lock como tecla super",
+        hubDescription: "Transforma uma tecla na combinação de modificadores que você escolher.",
         enableCaption: "Segure e aperte qualquer tecla. Escolha um ou mais modificadores abaixo.",
         capsLockKey: "Caps Lock",
+        rightKeyFormat: "Direita %@",
         holdHint: "Segure",
         soloSection: "Um toque sozinho",
         soloCaption: "O que um toque rápido faz quando nenhuma outra tecla é apertada.",
@@ -73,17 +78,17 @@ extension SuperKeyStrings {
         soloCapsLock: "Liga e desliga as maiúsculas",
         soloEscape: "Aperta Escape",
         activeNow: "Funcionando agora",
-        panelCaptionFormat: "O Caps Lock segura %@.",
+        panelCaptionFormat: "%1$@ segura %2$@.",
         manageButton: "Configurar…",
         soloInputSource: "Trocar fonte de entrada; segure para Caps Lock"
     )
 
     static let tr = SuperKeyStrings(
         pageTitle: "Süper tuş",
-        hubDescription: "Caps Lock'u seçtiğiniz değiştirici tuş birleşimine dönüştürür.",
-        enableToggle: "Caps Lock süper tuş olsun",
+        hubDescription: "Bir tuşu seçtiğiniz değiştirici tuş birleşimine dönüştürür.",
         enableCaption: "Basılı tutup herhangi bir tuşa basın. Aşağıdan bir veya daha fazla değiştirici seçin.",
         capsLockKey: "Caps Lock",
+        rightKeyFormat: "Sağ %@",
         holdHint: "Basılı tutun",
         soloSection: "Tek başına dokunuş",
         soloCaption: "Başka tuşa basılmadan yapılan hızlı dokunuş ne yapsın.",
@@ -91,17 +96,17 @@ extension SuperKeyStrings {
         soloCapsLock: "Büyük harfi açar kapatır",
         soloEscape: "Escape tuşuna basar",
         activeNow: "Şu anda çalışıyor",
-        panelCaptionFormat: "Caps Lock %@ tuşlarını basılı tutar.",
+        panelCaptionFormat: "%1$@ %2$@ tuşlarını basılı tutar.",
         manageButton: "Ayarla…",
         soloInputSource: "Giriş kaynağını değiştir; Caps Lock için basılı tut"
     )
 
     static let ru = SuperKeyStrings(
         pageTitle: "Суперклавиша",
-        hubDescription: "Превращает Caps Lock в выбранное сочетание клавиш-модификаторов.",
-        enableToggle: "Использовать Caps Lock как суперклавишу",
+        hubDescription: "Превращает одну клавишу в выбранное сочетание клавиш-модификаторов.",
         enableCaption: "Удерживайте её и нажмите любую клавишу. Выберите ниже один или несколько модификаторов.",
         capsLockKey: "Caps Lock",
+        rightKeyFormat: "Правая %@",
         holdHint: "Удерживайте",
         soloSection: "Одиночное нажатие",
         soloCaption: "Что делает быстрое нажатие, если других клавиш не было.",
@@ -109,17 +114,17 @@ extension SuperKeyStrings {
         soloCapsLock: "Включает и выключает заглавные",
         soloEscape: "Нажимает Escape",
         activeNow: "Работает",
-        panelCaptionFormat: "Caps Lock удерживает %@.",
+        panelCaptionFormat: "%1$@ удерживает %2$@.",
         manageButton: "Настроить…",
         soloInputSource: "Сменить источник ввода; удерживать для Caps Lock"
     )
 
     static let es = SuperKeyStrings(
         pageTitle: "Tecla súper",
-        hubDescription: "Convierte Bloq Mayús en la combinación de modificadores que elijas.",
-        enableToggle: "Usar Bloq Mayús como tecla súper",
+        hubDescription: "Convierte una tecla en la combinación de modificadores que elijas.",
         enableCaption: "Mantenla pulsada y pulsa cualquier tecla. Elige uno o más modificadores abajo.",
         capsLockKey: "Bloq Mayús",
+        rightKeyFormat: "Derecha %@",
         holdHint: "Mantén",
         soloSection: "Un toque suelto",
         soloCaption: "Qué hace un toque rápido cuando no se pulsa ninguna otra tecla.",
@@ -127,17 +132,17 @@ extension SuperKeyStrings {
         soloCapsLock: "Activa y desactiva las mayúsculas",
         soloEscape: "Pulsa Escape",
         activeNow: "Funcionando ahora",
-        panelCaptionFormat: "Bloq Mayús mantiene %@.",
+        panelCaptionFormat: "%1$@ mantiene %2$@.",
         manageButton: "Configurar…",
         soloInputSource: "Cambiar fuente de entrada; mantener para Bloq Mayús"
     )
 
     static let de = SuperKeyStrings(
         pageTitle: "Supertaste",
-        hubDescription: "Macht die Feststelltaste zu deiner gewählten Sondertastenkombination.",
-        enableToggle: "Feststelltaste als Supertaste verwenden",
+        hubDescription: "Macht eine Taste zu deiner gewählten Sondertastenkombination.",
         enableCaption: "Halte sie und drücke eine beliebige Taste. Wähle unten eine oder mehrere Sondertasten.",
         capsLockKey: "Feststelltaste",
+        rightKeyFormat: "Rechte %@",
         holdHint: "Halten",
         soloSection: "Ein einzelner Tastendruck",
         soloCaption: "Was ein kurzer Druck bewirkt, wenn keine andere Taste dabei ist.",
@@ -145,17 +150,17 @@ extension SuperKeyStrings {
         soloCapsLock: "Großbuchstaben ein und aus",
         soloEscape: "Drückt Escape",
         activeNow: "Läuft gerade",
-        panelCaptionFormat: "Die Feststelltaste hält %@.",
+        panelCaptionFormat: "%1$@ hält %2$@.",
         manageButton: "Einrichten…",
         soloInputSource: "Eingabequelle wechseln; für Feststelltaste halten"
     )
 
     static let fr = SuperKeyStrings(
         pageTitle: "Touche super",
-        hubDescription: "Transforme Verr. Maj en la combinaison de modificateurs de votre choix.",
-        enableToggle: "Utiliser Verr. Maj comme touche super",
+        hubDescription: "Transforme une touche en la combinaison de modificateurs de votre choix.",
         enableCaption: "Maintenez-la et appuyez sur n'importe quelle touche. Choisissez un ou plusieurs modificateurs ci-dessous.",
         capsLockKey: "Verr. Maj",
+        rightKeyFormat: "%@ droite",
         holdHint: "Maintenez",
         soloSection: "Un appui seul",
         soloCaption: "Ce que fait un appui rapide quand aucune autre touche n'est pressée.",
@@ -163,17 +168,17 @@ extension SuperKeyStrings {
         soloCapsLock: "Active et désactive les majuscules",
         soloEscape: "Appuie sur Échap",
         activeNow: "Actif maintenant",
-        panelCaptionFormat: "Verr. Maj maintient %@.",
+        panelCaptionFormat: "%1$@ maintient %2$@.",
         manageButton: "Configurer…",
         soloInputSource: "Changer de source d’entrée ; maintenir pour Verr. Maj"
     )
 
     static let it = SuperKeyStrings(
         pageTitle: "Tasto super",
-        hubDescription: "Trasforma Blocco Maiuscole nella combinazione di modificatori che scegli.",
-        enableToggle: "Usa Blocco Maiuscole come tasto super",
+        hubDescription: "Trasforma un tasto nella combinazione di modificatori che scegli.",
         enableCaption: "Tienilo premuto e premi un tasto qualsiasi. Scegli uno o più modificatori qui sotto.",
         capsLockKey: "Blocco Maiuscole",
+        rightKeyFormat: "%@ destro",
         holdHint: "Tieni premuto",
         soloSection: "Un tocco da solo",
         soloCaption: "Cosa fa un tocco veloce quando non premi nessun altro tasto.",
@@ -181,17 +186,17 @@ extension SuperKeyStrings {
         soloCapsLock: "Attiva e disattiva le maiuscole",
         soloEscape: "Preme Escape",
         activeNow: "Attivo ora",
-        panelCaptionFormat: "Blocco Maiuscole tiene premuti %@.",
+        panelCaptionFormat: "%1$@ tiene premuti %2$@.",
         manageButton: "Configura…",
         soloInputSource: "Cambia sorgente di input; tieni premuto per Blocco Maiuscole"
     )
 
     static let ja = SuperKeyStrings(
         pageTitle: "スーパーキー",
-        hubDescription: "Caps Lock を選んだ修飾キーの組み合わせに変えます。",
-        enableToggle: "Caps Lock をスーパーキーとして使う",
+        hubDescription: "1つのキーを選んだ修飾キーの組み合わせに変えます。",
         enableCaption: "押したまま好きなキーを押してください。下から1つ以上の修飾キーを選びます。",
         capsLockKey: "Caps Lock",
+        rightKeyFormat: "右%@",
         holdHint: "押したまま",
         soloSection: "単独で押したとき",
         soloCaption: "ほかのキーを押さずに軽く押したときの動作です。",
@@ -199,17 +204,17 @@ extension SuperKeyStrings {
         soloCapsLock: "大文字を切り替える",
         soloEscape: "Escape を押す",
         activeNow: "動作中",
-        panelCaptionFormat: "Caps Lock が %@ を押した状態にします。",
+        panelCaptionFormat: "%1$@ が %2$@ を押した状態にします。",
         manageButton: "設定…",
         soloInputSource: "入力ソースを切り替え（長押しで Caps Lock）"
     )
 
     static let ko = SuperKeyStrings(
         pageTitle: "슈퍼 키",
-        hubDescription: "Caps Lock을 선택한 조합 키 묶음으로 바꿉니다.",
-        enableToggle: "Caps Lock을 슈퍼 키로 사용",
+        hubDescription: "키 하나를 선택한 조합 키 묶음으로 바꿉니다.",
         enableCaption: "누른 채로 아무 키나 누르세요. 아래에서 조합 키를 하나 이상 선택하세요.",
         capsLockKey: "Caps Lock",
+        rightKeyFormat: "오른쪽 %@",
         holdHint: "누른 채로",
         soloSection: "혼자 눌렀을 때",
         soloCaption: "다른 키 없이 가볍게 눌렀을 때의 동작입니다.",
@@ -217,17 +222,17 @@ extension SuperKeyStrings {
         soloCapsLock: "대문자 켜고 끄기",
         soloEscape: "Escape 누르기",
         activeNow: "지금 작동 중",
-        panelCaptionFormat: "Caps Lock이 %@를 누른 상태로 만듭니다.",
+        panelCaptionFormat: "%1$@이(가) %2$@를 누른 상태로 만듭니다.",
         manageButton: "설정…",
         soloInputSource: "입력 소스 전환(길게 눌러 Caps Lock)"
     )
 
     static let zhHans = SuperKeyStrings(
         pageTitle: "超级键",
-        hubDescription: "把大写锁定键变成你选择的修饰键组合。",
-        enableToggle: "把大写锁定键当作超级键",
+        hubDescription: "把一个按键变成你选择的修饰键组合。",
         enableCaption: "按住它再按任意键。请在下方选择一个或多个修饰键。",
         capsLockKey: "大写锁定",
+        rightKeyFormat: "右侧%@",
         holdHint: "按住",
         soloSection: "单独轻按",
         soloCaption: "没有按下其他键时，轻按一下会做什么。",
@@ -235,17 +240,17 @@ extension SuperKeyStrings {
         soloCapsLock: "开关大写",
         soloEscape: "按下 Escape",
         activeNow: "正在运行",
-        panelCaptionFormat: "大写锁定键会按住 %@。",
+        panelCaptionFormat: "%1$@会按住 %2$@。",
         manageButton: "设置…",
         soloInputSource: "切换输入法；长按开关大写锁定"
     )
 
     static let zhTW = SuperKeyStrings(
         pageTitle: "超級鍵",
-        hubDescription: "把大寫鎖定鍵變成你選擇的修飾鍵組合。",
-        enableToggle: "把大寫鎖定鍵當作超級鍵",
+        hubDescription: "把一個按鍵變成你選擇的修飾鍵組合。",
         enableCaption: "按住它再按任何鍵。請在下方選擇一個或多個修飾鍵。",
         capsLockKey: "大寫鎖定",
+        rightKeyFormat: "右側%@",
         holdHint: "按住",
         soloSection: "單獨輕按",
         soloCaption: "沒有按下其他鍵時，輕按一下會做什麼。",
@@ -253,17 +258,17 @@ extension SuperKeyStrings {
         soloCapsLock: "開關大寫",
         soloEscape: "按下 Escape",
         activeNow: "正在運作",
-        panelCaptionFormat: "大寫鎖定鍵會按住 %@。",
+        panelCaptionFormat: "%1$@會按住 %2$@。",
         manageButton: "設定…",
         soloInputSource: "切換輸入法；長按切換大寫鎖定"
     )
 
     static let zhHK = SuperKeyStrings(
         pageTitle: "超級鍵",
-        hubDescription: "將大寫鎖定鍵變成你揀嘅修飾鍵組合。",
-        enableToggle: "把大寫鎖定鍵當作超級鍵",
+        hubDescription: "將一個按鍵變成你揀嘅修飾鍵組合。",
         enableCaption: "按住佢再撳任何鍵。喺下面揀一個或多個修飾鍵。",
         capsLockKey: "大寫鎖定",
+        rightKeyFormat: "右側%@",
         holdHint: "按住",
         soloSection: "單獨輕撳",
         soloCaption: "無撳其他鍵嘅時候，輕撳一下會做乜。",
@@ -271,7 +276,7 @@ extension SuperKeyStrings {
         soloCapsLock: "開關大寫",
         soloEscape: "撳 Escape",
         activeNow: "正在運作",
-        panelCaptionFormat: "大寫鎖定鍵會按住 %@。",
+        panelCaptionFormat: "%1$@會按住 %2$@。",
         manageButton: "設定…",
         soloInputSource: "切換輸入法；長撳切換大寫鎖定"
     )

@@ -9,22 +9,22 @@ import CoreGraphics
 import IOKit
 import IOKit.hidsystem
 
-/// Turns Caps Lock into one key that holds the user's chosen modifiers.
+/// Turns one key into the user's chosen modifiers.
 ///
-/// Two halves make it work. The keyboard mapping table turns Caps Lock into
-/// F18, because a lock key never reports going down and up and so can never be
-/// held; the event tap then keeps that key to itself and adds the user's
+/// Two halves make it work. The keyboard mapping table turns the source into
+/// F18; the event tap then keeps that key to itself and adds the user's
 /// chosen modifiers to whatever is pressed while it is down. Nothing is
 /// installed while the feature is off, and the mapping is always taken back
 /// out when the feature goes off or the app quits. Requires Accessibility:
 /// without it the tap cannot modify events, and the mapping is not applied
-/// either, so Caps Lock is never left as a key that does nothing.
+/// either, so the source is never left as a key that does nothing.
 final class SuperKeyService: ObservableObject {
     static let shared = SuperKeyService()
 
     /// True while the key is actually working: tap up and mapping applied.
     @Published private(set) var isRunning = false
     @Published private(set) var modifiers = SuperKeySupport.defaultModifiers
+    @Published private(set) var source = SuperKeySource.capsLock
 
     /// Read by the shortcut recording tap, which sits ahead of this one while a
     /// field is listening and would otherwise see the bare trigger key instead
@@ -53,6 +53,7 @@ final class SuperKeyService: ObservableObject {
     private var state = SuperKeySupport.State()
     private var soloAction: SuperKeySoloAction = .none
     private var eventModifiers = SuperKeySupport.defaultModifiers
+    private var eventSource = SuperKeySource.capsLock
     private var wakeObserver: NSObjectProtocol?
     /// The mapping is written off the main thread, and in the order it was
     /// asked for: a queue of one keeps an apply and a clear from crossing.
@@ -91,11 +92,17 @@ final class SuperKeyService: ObservableObject {
         let modifiers = SuperKeySupport.modifiers(
             from: defaults.string(forKey: DefaultsKey.superKeyModifiers)
         )
+        let source = SuperKeySource.sanitized(
+            defaults.string(forKey: DefaultsKey.superKeySource)
+        )
+        let sourceChanged = self.source != source
         stateLock.withLock {
-            soloAction = action
+            soloAction = source == .capsLock || action != .capsLock ? action : .none
             eventModifiers = modifiers
+            eventSource = source
         }
         self.modifiers = modifiers
+        self.source = source
         let enabled = AppFeature.superKey.isAvailable
             && defaults.bool(forKey: DefaultsKey.superKeyEnabled)
         guard enabled else {
@@ -107,11 +114,12 @@ final class SuperKeyService: ObservableObject {
         if let tap = lifecycleLock.withLock({ tap }), !CGEvent.tapIsEnabled(tap: tap) {
             stop()
         }
+        if sourceChanged { stop() }
         start()
     }
 
     /// Quitting takes the mapping out on the spot: the process is about to go
-    /// away, and a mapping left behind would leave Caps Lock doing nothing.
+    /// away, and a mapping left behind would leave its source doing nothing.
     func suspend() {
         stop(synchronously: true)
     }
@@ -120,7 +128,7 @@ final class SuperKeyService: ObservableObject {
         let tapExists = lifecycleLock.withLock { tap != nil && !shouldStopTapThread }
         guard !tapExists else { return }
         // Without Accessibility the tap cannot add the modifiers, and a
-        // mapping alone would turn Caps Lock into a dead key. One left by a
+        // mapping alone would turn its source into a dead key. One left by a
         // run that was killed comes out here too: with the feature still
         // enabled, the launch-time stop() that normally clears it never runs.
         guard AXIsProcessTrusted() else {
@@ -258,7 +266,7 @@ final class SuperKeyService: ObservableObject {
 
     /// The mapping is cleared even when this service never applied it: an
     /// app that was killed while the feature was on leaves one behind, and
-    /// every path that ends without a live tap takes it out, so Caps Lock is
+    /// every path that ends without a live tap takes it out, so the source is
     /// never left as a key that does nothing.
     private func clearLeftoverMapping(synchronously: Bool = false) {
         let mappingMayBeApplied = UserDefaults.standard.bool(
@@ -292,6 +300,7 @@ final class SuperKeyService: ObservableObject {
     private func applyMapping(_ enabled: Bool,
                               synchronously: Bool = false,
                               completion: ((Bool) -> Void)? = nil) {
+        let source = stateLock.withLock { eventSource }
         stateLock.withLock {
             lastMappingAt = ProcessInfo.processInfo.systemUptime
             if enabled { pendingMappingEnableCount += 1 }
@@ -300,9 +309,13 @@ final class SuperKeyService: ObservableObject {
             guard let self else { return }
             let defaults = UserDefaults.standard
             let previousMarker = defaults.bool(forKey: DefaultsKey.superKeyMappingApplied)
+            let ownedSource = previousMarker ? SuperKeySource.sanitized(
+                defaults.string(forKey: DefaultsKey.superKeyMappedSource)
+            ) : nil
             let confirmed = self.performMapping(
                 enabled,
-                ownsExistingMapping: previousMarker
+                source: source,
+                ownedSource: ownedSource
             )
             if !enabled {
                 let marker = SuperKeySupport.mappingMarkerAfterClear(
@@ -310,6 +323,7 @@ final class SuperKeyService: ObservableObject {
                     readbackConfirmed: confirmed
                 )
                 defaults.set(marker, forKey: DefaultsKey.superKeyMappingApplied)
+                if !marker { defaults.removeObject(forKey: DefaultsKey.superKeyMappedSource) }
             }
             if enabled {
                 self.stateLock.withLock { self.pendingMappingEnableCount -= 1 }
@@ -325,7 +339,9 @@ final class SuperKeyService: ObservableObject {
         }
     }
 
-    private func performMapping(_ enabled: Bool, ownsExistingMapping: Bool) -> Bool {
+    private func performMapping(_ enabled: Bool,
+                                source: SuperKeySource,
+                                ownedSource: SuperKeySource?) -> Bool {
         let includeNoAction: Bool
         if enabled {
             let modifierReport = Shell.run(
@@ -338,9 +354,9 @@ final class SuperKeyService: ObservableObject {
                 modifierReport.output,
                 property: SuperKeySupport.modifierMappingProperty
             ) else { return false }
-            guard SuperKeySupport.modifierMappingsAllowSuperKey(modifierMappings)
+            guard SuperKeySupport.modifierMappingsAllowSuperKey(modifierMappings, source: source)
             else { return false }
-            includeNoAction = SuperKeySupport.canMapNoAction(from: modifierMappings)
+            includeNoAction = SuperKeySupport.canMapNoAction(from: modifierMappings, source: source)
         } else {
             includeNoAction = false
         }
@@ -353,26 +369,29 @@ final class SuperKeyService: ObservableObject {
         guard let existing = SuperKeySupport.consistentMappings(
             report.output,
             property: SuperKeySupport.userMappingProperty,
-            ownsExistingMapping: ownsExistingMapping
+            ownedSource: ownedSource
         ) else { return false }
         guard !enabled || !SuperKeySupport.hasMappingConflict(
             in: existing,
-            ownsExistingMapping: ownsExistingMapping
+            source: source,
+            ownedSource: ownedSource
         )
         else { return false }
         let wanted = SuperKeySupport.mappings(
             enablingSuperKey: enabled,
             existing: existing,
-            includeNoAction: includeNoAction,
-            ownsExistingMapping: ownsExistingMapping
+            source: source,
+            ownedSource: ownedSource,
+            includeNoAction: includeNoAction
         )
-        if !enabled, !ownsExistingMapping,
+        if !enabled, ownedSource == nil,
            SuperKeySupport.mappingsMatch(existing, wanted) { return true }
         if enabled {
             // Recovery is write-ahead only after every external-mapping check
             // passed. A crash after the command starts must leave the next
             // launch authorized to remove a possibly partial application.
             UserDefaults.standard.set(true, forKey: DefaultsKey.superKeyMappingApplied)
+            UserDefaults.standard.set(source.rawValue, forKey: DefaultsKey.superKeyMappedSource)
         }
         let write = Shell.run(
             hidutilPath,
@@ -402,17 +421,17 @@ final class SuperKeyService: ObservableObject {
             }
             guard publishingRunState else { return }
             // Caps Lock left on would have no way back once the key stops locking.
-            self.setCapsLock(false)
+            if self.source == .capsLock { self.setCapsLock(false) }
             self.observeWake()
             self.isRunning = true
             Self.isEngaged = true
         }
     }
 
-    /// A keyboard that arrives after the mapping was applied still locks; the
-    /// first press on it is the signal to map it too. Repaired at most once
-    /// every few seconds, so a keyboard that refuses the mapping cannot turn
-    /// typing into a stream of commands.
+    /// A keyboard that arrives after the mapping was applied still sends the
+    /// raw source; the first press on it is the signal to map it too. Repaired
+    /// at most once every few seconds. A keyboard that refuses the mapping
+    /// cannot turn typing into a stream of commands.
     private func repairMappingIfStale() {
         guard let activeTap = lifecycleLock.withLock({
             shouldStopTapThread ? nil : tap
@@ -436,7 +455,9 @@ final class SuperKeyService: ObservableObject {
             return Unmanaged.passUnretained(event)
         }
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        let event0 = SuperKeyService.classify(type: type, keyCode: keyCode, event: event)
+        let source = stateLock.withLock { eventSource }
+        let event0 = SuperKeyService.classify(type: type, keyCode: keyCode,
+                                              source: source, event: event)
         let decision = stateLock.withLock { state.decide(event0) }
         // Only the key's own events say it is still down: the first press and
         // the repeats the system sends while it is held. Keys pressed meanwhile
@@ -460,7 +481,7 @@ final class SuperKeyService: ObservableObject {
                 self?.cancelHeldKeyWatchdog()
                 self?.onHoldEnded?(true)
             }
-        case .otherKey, .otherModifier, .capsLock:
+        case .otherKey, .otherModifier, .sourceKey:
             break
         }
         switch decision {
@@ -480,16 +501,15 @@ final class SuperKeyService: ObservableObject {
             return nil
         case .interceptAndRemap:
             repairMappingIfStale()
-            // At the session tap the missing mapping may already have flipped
-            // the lock state. Keep that raw event out of apps and put Caps
-            // Lock back off while the keyboard mapping is repaired.
+            // At the session tap a missing Caps Lock mapping may already have
+            // flipped the lock state. Put it back off while the mapping repairs.
             DispatchQueue.main.async { [weak self] in
                 guard let self,
                       self.lifecycleLock.withLock({
                           self.tap != nil && !self.shouldStopTapThread
                       })
                 else { return }
-                self.setCapsLock(false)
+                if source == .capsLock { self.setCapsLock(false) }
             }
             return nil
         }
@@ -528,9 +548,11 @@ final class SuperKeyService: ObservableObject {
         }
     }
 
-    private static func classify(type: CGEventType, keyCode: Int64, event: CGEvent) -> SuperKeySupport.Event {
+    private static func classify(type: CGEventType, keyCode: Int64,
+                                 source: SuperKeySource,
+                                 event: CGEvent) -> SuperKeySupport.Event {
         if type == .flagsChanged {
-            return keyCode == SuperKeySupport.capsLockKeyCode ? .capsLock : .otherModifier
+            return keyCode == source.keyCode ? .sourceKey : .otherModifier
         }
         guard keyCode == SuperKeySupport.triggerKeyCode else { return .otherKey }
         if type == .keyDown {
