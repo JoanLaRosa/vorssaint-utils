@@ -10704,7 +10704,7 @@ struct MetricsTests {
                    "every Settings category name is set for \(language.rawValue)")
             let superKeyValues = Mirror(reflecting: FeatureStrings.superKey(language)).children
                 .compactMap { $0.value as? String }
-            expect(superKeyValues.count == 15 && superKeyValues.allSatisfy { !$0.isEmpty },
+            expect(superKeyValues.count == 16 && superKeyValues.allSatisfy { !$0.isEmpty },
                    "every super key string is set for \(language.rawValue)")
             let superKeyStrings = FeatureStrings.superKey(language)
             expect(superKeyValues.allSatisfy { !$0.contains("—") }

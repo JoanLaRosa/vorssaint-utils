@@ -39,7 +39,7 @@ struct SuperKeySettings: View {
                         permissions.requestAccessibility()
                         permissions.openAccessibilitySettings()
                     }
-                Picker(text.pageTitle, selection: sourceBinding) {
+                Picker(text.sourceKey, selection: sourceBinding) {
                     ForEach(SuperKeySource.allCases) { source in
                         Text(text.sourceLabel(source)).tag(source)
                     }
