@@ -47,6 +47,9 @@ struct SuperKeySettings: View {
                 Text(text.enableCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Label(text.modifierKeysNote, systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 diagram
                 if enabled, let failure = superKey.mappingFailure {
                     Label(text.mappingFailure(failure),
