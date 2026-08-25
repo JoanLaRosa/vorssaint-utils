@@ -23,6 +23,9 @@ final class SuperKeyService: ObservableObject {
 
     /// True while the key is actually working: tap up and mapping applied.
     @Published private(set) var isRunning = false
+    /// What stopped the mapping, while it is stopped. The feature has several
+    /// reasons to refuse, and none of them is visible in the key itself.
+    @Published private(set) var mappingFailure: SuperKeyMappingFailure?
     @Published private(set) var modifiers = SuperKeySupport.defaultModifiers
     @Published private(set) var source = SuperKeySource.capsLock
 
@@ -97,7 +100,7 @@ final class SuperKeyService: ObservableObject {
         )
         let sourceChanged = self.source != source
         stateLock.withLock {
-            soloAction = source == .capsLock || action != .capsLock ? action : .none
+            soloAction = action
             eventModifiers = modifiers
             eventSource = source
         }
@@ -180,6 +183,7 @@ final class SuperKeyService: ObservableObject {
         }
         clearLeftoverMapping(synchronously: synchronously)
         isRunning = false
+        setMappingFailure(nil)
     }
 
     private func runEventTap() {
@@ -299,7 +303,7 @@ final class SuperKeyService: ObservableObject {
 
     private func applyMapping(_ enabled: Bool,
                               synchronously: Bool = false,
-                              completion: ((Bool) -> Void)? = nil) {
+                              completion: ((SuperKeyMappingFailure?) -> Void)? = nil) {
         let source = stateLock.withLock { eventSource }
         stateLock.withLock {
             lastMappingAt = ProcessInfo.processInfo.systemUptime
@@ -312,7 +316,7 @@ final class SuperKeyService: ObservableObject {
             let ownedSource = previousMarker ? SuperKeySource.sanitized(
                 defaults.string(forKey: DefaultsKey.superKeyMappedSource)
             ) : nil
-            let confirmed = self.performMapping(
+            let failure = self.performMapping(
                 enabled,
                 source: source,
                 ownedSource: ownedSource
@@ -320,7 +324,7 @@ final class SuperKeyService: ObservableObject {
             if !enabled {
                 let marker = SuperKeySupport.mappingMarkerAfterClear(
                     previous: previousMarker,
-                    readbackConfirmed: confirmed
+                    readbackConfirmed: failure == nil
                 )
                 defaults.set(marker, forKey: DefaultsKey.superKeyMappingApplied)
                 if !marker { defaults.removeObject(forKey: DefaultsKey.superKeyMappedSource) }
@@ -329,7 +333,7 @@ final class SuperKeyService: ObservableObject {
                 self.stateLock.withLock { self.pendingMappingEnableCount -= 1 }
             }
             if let completion {
-                DispatchQueue.main.async { completion(confirmed) }
+                DispatchQueue.main.async { completion(failure) }
             }
         }
         if synchronously {
@@ -339,53 +343,40 @@ final class SuperKeyService: ObservableObject {
         }
     }
 
+    /// Applies or clears the mapping, and answers with the reason it could not
+    /// be done, or nil when it was.
+    ///
+    /// Modifier Keys rules cannot be read here: hidd keeps
+    /// `HIDKeyboardModifierMappingPairs` per client connection, so hidutil
+    /// answers null for rules written by System Settings.
     private func performMapping(_ enabled: Bool,
                                 source: SuperKeySource,
-                                ownedSource: SuperKeySource?) -> Bool {
-        let includeNoAction: Bool
-        if enabled {
-            let modifierReport = Shell.run(
-                hidutilPath,
-                ["property", "--matching", keyboardMatch,
-                 "--get", SuperKeySupport.modifierMappingProperty]
-            )
-            guard modifierReport.status == 0 else { return false }
-            guard let modifierMappings = SuperKeySupport.consistentMappings(
-                modifierReport.output,
-                property: SuperKeySupport.modifierMappingProperty
-            ) else { return false }
-            guard SuperKeySupport.modifierMappingsAllowSuperKey(modifierMappings, source: source)
-            else { return false }
-            includeNoAction = SuperKeySupport.canMapNoAction(from: modifierMappings, source: source)
-        } else {
-            includeNoAction = false
-        }
+                                ownedSource: SuperKeySource?) -> SuperKeyMappingFailure? {
         let report = Shell.run(
             hidutilPath,
             ["property", "--matching", keyboardMatch,
              "--get", SuperKeySupport.userMappingProperty]
         )
-        guard report.status == 0 else { return false }
+        guard report.status == 0 else { return .systemRefused }
         guard let existing = SuperKeySupport.consistentMappings(
             report.output,
             property: SuperKeySupport.userMappingProperty,
             ownedSource: ownedSource
-        ) else { return false }
+        ) else { return .foreignMapping }
         guard !enabled || !SuperKeySupport.hasMappingConflict(
             in: existing,
             source: source,
             ownedSource: ownedSource
         )
-        else { return false }
+        else { return .foreignMapping }
         let wanted = SuperKeySupport.mappings(
             enablingSuperKey: enabled,
             existing: existing,
             source: source,
-            ownedSource: ownedSource,
-            includeNoAction: includeNoAction
+            ownedSource: ownedSource
         )
         if !enabled, ownedSource == nil,
-           SuperKeySupport.mappingsMatch(existing, wanted) { return true }
+           SuperKeySupport.mappingsMatch(existing, wanted) { return nil }
         if enabled {
             // Recovery is write-ahead only after every external-mapping check
             // passed. A crash after the command starts must leave the next
@@ -398,34 +389,51 @@ final class SuperKeyService: ObservableObject {
             ["property", "--matching", keyboardMatch,
              "--set", SuperKeySupport.mappingArgument(wanted)]
         )
-        guard write.status == 0 else { return false }
+        guard write.status == 0 else { return .systemRefused }
         let readback = Shell.run(
             hidutilPath,
             ["property", "--matching", keyboardMatch,
              "--get", SuperKeySupport.userMappingProperty]
         )
-        guard readback.status == 0 else { return false }
+        guard readback.status == 0 else { return .systemRefused }
         return SuperKeySupport.mappingReportConfirms(readback.output, expected: wanted)
+            ? nil : .systemRefused
     }
 
     private func confirmMapping(for expectedTap: CFMachPort, publishingRunState: Bool) {
-        applyMapping(true) { [weak self] confirmed in
+        applyMapping(true) { [weak self] failure in
             guard let self else { return }
             let active = self.lifecycleLock.withLock {
                 self.tap === expectedTap && !self.shouldStopTapThread
             }
             guard active else { return }
-            guard confirmed else {
-                if publishingRunState { self.stop() }
+            guard let failure else {
+                self.setMappingFailure(nil)
+                if publishingRunState || !self.isRunning { self.finishStart() }
                 return
             }
-            guard publishingRunState else { return }
-            // Caps Lock left on would have no way back once the key stops locking.
-            if self.source == .capsLock { self.setCapsLock(false) }
-            self.observeWake()
-            self.isRunning = true
-            Self.isEngaged = true
+            if publishingRunState {
+                self.stop()
+            } else {
+                self.isRunning = false
+            }
+            self.setMappingFailure(failure)
         }
+    }
+
+    private func finishStart() {
+        // Caps Lock left on would have no way back once the key stops locking.
+        if source == .capsLock { setCapsLock(false) }
+        observeWake()
+        isRunning = true
+        Self.isEngaged = true
+    }
+
+    /// Repair runs every few seconds while typing; republishing an unchanged
+    /// reason would redraw Settings just as often.
+    private func setMappingFailure(_ failure: SuperKeyMappingFailure?) {
+        guard mappingFailure != failure else { return }
+        mappingFailure = failure
     }
 
     /// A keyboard that arrives after the mapping was applied still sends the

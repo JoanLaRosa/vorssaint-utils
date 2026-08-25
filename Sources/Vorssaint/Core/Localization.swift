@@ -564,6 +564,12 @@ struct Strings {
     let mediaCompressionMedium: String
     let mediaCompressionHigh: String
     let mediaMaxSize: String
+    let mediaSizingResolution: String
+    let mediaSizingFileSize: String
+    let mediaTargetSize: String
+    let mediaTargetSizeHint: String
+    let mediaErrorTargetTooSmall: String
+    let mediaMegabytesSuffix: String
     let mediaWidth: String
     let mediaFPS: String
     let mediaKeepAudio: String
@@ -879,6 +885,8 @@ struct Strings {
 
     // MARK: Per-item panel config (Settings + onboarding)
     let monitorShowInPanel: String
+    let disclosureExpanded: String
+    let disclosureCollapsed: String
     let panelHideItem: String
     let panelShowItem: String
     let panelHiddenItem: String
@@ -1545,6 +1553,12 @@ extension Strings {
         mediaCompressionMedium: "Média",
         mediaCompressionHigh: "Alta",
         mediaMaxSize: "Tamanho",
+        mediaSizingResolution: "Resolução",
+        mediaSizingFileSize: "Tamanho do arquivo",
+        mediaTargetSize: "Tamanho alvo",
+        mediaTargetSizeHint: "A resolução se ajusta para ficar abaixo do limite.",
+        mediaErrorTargetTooSmall: "Tamanho alvo pequeno demais para este clipe. Encurte-o ou aumente o limite.",
+        mediaMegabytesSuffix: " MB",
         mediaWidth: "Largura",
         mediaFPS: "FPS",
         mediaKeepAudio: "Manter áudio",
@@ -1846,6 +1860,8 @@ extension Strings {
         speedTestFailed: "Falha no teste",
 
         monitorShowInPanel: "Mostrar no painel",
+        disclosureExpanded: "Expandido",
+        disclosureCollapsed: "Recolhido",
         panelHideItem: "Ocultar do painel",
         panelShowItem: "Mostrar no painel",
         panelHiddenItem: "Oculto",
@@ -2505,6 +2521,12 @@ extension Strings {
         mediaCompressionMedium: "Medium",
         mediaCompressionHigh: "High",
         mediaMaxSize: "Size",
+        mediaSizingResolution: "Resolution",
+        mediaSizingFileSize: "File size",
+        mediaTargetSize: "Target size",
+        mediaTargetSizeHint: "Resolution adapts to stay under the limit.",
+        mediaErrorTargetTooSmall: "Target size too small for this clip. Trim it or raise the limit.",
+        mediaMegabytesSuffix: " MB",
         mediaWidth: "Width",
         mediaFPS: "FPS",
         mediaKeepAudio: "Keep audio",
@@ -2806,6 +2828,8 @@ extension Strings {
         speedTestFailed: "Test failed",
 
         monitorShowInPanel: "Show in panel",
+        disclosureExpanded: "Expanded",
+        disclosureCollapsed: "Collapsed",
         panelHideItem: "Hide from panel",
         panelShowItem: "Show in panel",
         panelHiddenItem: "Hidden",

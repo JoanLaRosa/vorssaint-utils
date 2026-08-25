@@ -23,19 +23,6 @@ enum SuperKeySource: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The generic/left-side usage written by System Settings > Keyboard >
-    /// Modifier Keys for this modifier family. UserKeyMapping still needs the
-    /// right-side `usage` above so only the chosen physical key becomes Super.
-    var modifierUsage: UInt64 {
-        switch self {
-        case .capsLock: usage
-        case .rightControl: 0x7000000E0
-        case .rightShift: 0x7000000E1
-        case .rightOption: 0x7000000E2
-        case .rightCommand: 0x7000000E3
-        }
-    }
-
     var systemImage: String {
         switch self {
         case .capsLock: "capslock"
@@ -87,6 +74,16 @@ struct SuperKeyMapping: Equatable {
     let destination: UInt64
 }
 
+/// Why the key mapping could not be applied. Every refusal carries one, so
+/// the feature can say what stopped it instead of switching itself back off
+/// with nothing on screen.
+enum SuperKeyMappingFailure: Equatable, CaseIterable {
+    /// Another app's key mapping is in the way.
+    case foreignMapping
+    /// hidutil refused the read, the write, or the readback.
+    case systemRefused
+}
+
 /// The pure half of the super key: which keys are involved, how the mapping
 /// table is read and written, and the small state machine that decides what to
 /// do with each key event while the key is held.
@@ -123,13 +120,10 @@ enum SuperKeySupport {
             .storageTokens.joined(separator: "+")
     }
 
-    /// Modifier Keys represents “No Action” with this sentinel.
-    static let noActionUsage = UInt64.max
     /// F18 is the destination: a key defined by the standard, so the system
     /// delivers it like any other, and one no portable keyboard carries.
     static let triggerUsage: UInt64 = 0x70000006D
     static let userMappingProperty = "UserKeyMapping"
-    static let modifierMappingProperty = "HIDKeyboardModifierMappingPairs"
 
     /// Virtual key code of the destination key, as it arrives in key events.
     static let triggerKeyCode: Int64 = 79
@@ -142,18 +136,13 @@ enum SuperKeySupport {
     static func mappings(enablingSuperKey enabled: Bool,
                          existing: [SuperKeyMapping],
                          source: SuperKeySource = .capsLock,
-                         ownedSource: SuperKeySource? = nil,
-                         includeNoAction: Bool = false) -> [SuperKeyMapping] {
+                         ownedSource: SuperKeySource? = nil) -> [SuperKeyMapping] {
         guard enabled || ownedSource != nil else { return existing }
         let others = existing.filter { !isOwnedMapping($0, source: ownedSource) }
         guard enabled else { return others }
         guard !hasMappingConflict(in: existing, source: source, ownedSource: ownedSource)
         else { return existing }
-        var owned = [SuperKeyMapping(source: source.usage, destination: triggerUsage)]
-        if includeNoAction, !others.contains(where: { $0.source == noActionUsage }) {
-            owned.append(SuperKeyMapping(source: noActionUsage, destination: triggerUsage))
-        }
-        return owned + others
+        return [SuperKeyMapping(source: source.usage, destination: triggerUsage)] + others
     }
 
     /// The source can have only one destination. A mapping shaped like ours is
@@ -163,11 +152,8 @@ enum SuperKeySupport {
                                    source: SuperKeySource = .capsLock,
                                    ownedSource: SuperKeySource? = nil) -> Bool {
         mappings.contains {
-            ($0.source == source.usage
-                && ($0.destination != triggerUsage || source != ownedSource))
-                || ($0.source == noActionUsage
-                    && $0.destination == triggerUsage
-                    && ownedSource == nil)
+            $0.source == source.usage
+                && ($0.destination != triggerUsage || source != ownedSource)
         }
     }
 
@@ -226,28 +212,6 @@ enum SuperKeySupport {
         readbackConfirmed ? false : previous
     }
 
-    /// “No Action” has one shared sentinel after Modifier Keys. It is safe to
-    /// recover only when the source is the sole modifier using that sentinel.
-    static func canMapNoAction(from modifierMappings: [SuperKeyMapping],
-                               source: SuperKeySource = .capsLock) -> Bool {
-        let disabledSources = Set(
-            modifierMappings.lazy
-                .filter { $0.destination == noActionUsage }
-                .map(\.source)
-        )
-        let sourceUsages = Set([source.usage, source.modifierUsage])
-        return !disabledSources.isEmpty && disabledSources.isSubset(of: sourceUsages)
-    }
-
-    /// A Modifier Keys rule runs before UserKeyMapping. The source may proceed
-    /// only when it has no such rule, or when its sole rule is the supported
-    /// no-action sentinel that can be recovered without affecting another key.
-    static func modifierMappingsAllowSuperKey(_ mappings: [SuperKeyMapping],
-                                              source: SuperKeySource = .capsLock) -> Bool {
-        !mappings.contains { $0.source == source.usage || $0.source == source.modifierUsage }
-            || canMapNoAction(from: mappings, source: source)
-    }
-
     /// The mapping table as the command line takes it.
     static func mappingArgument(_ mappings: [SuperKeyMapping]) -> String {
         let entries = mappings.map {
@@ -274,8 +238,7 @@ enum SuperKeySupport {
     private static func isOwnedMapping(_ mapping: SuperKeyMapping,
                                        source: SuperKeySource?) -> Bool {
         guard let source else { return false }
-        return (mapping.source == source.usage && mapping.destination == triggerUsage)
-            || (mapping.source == noActionUsage && mapping.destination == triggerUsage)
+        return mapping.source == source.usage && mapping.destination == triggerUsage
     }
 
     private static func number(after field: String, in body: String) -> UInt64? {
