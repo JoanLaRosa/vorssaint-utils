@@ -13481,9 +13481,20 @@ struct MetricsTests {
                 && SuperKeySource.rightShift.usage == 0x7000000E5
                 && SuperKeySource.rightOption.usage == 0x7000000E6
                 && SuperKeySource.rightCommand.usage == 0x7000000E7
+                && SuperKeySource.capsLock.modifierUsage == 0x700000039
+                && SuperKeySource.rightControl.modifierUsage == 0x7000000E0
+                && SuperKeySource.rightShift.modifierUsage == 0x7000000E1
+                && SuperKeySource.rightOption.modifierUsage == 0x7000000E2
+                && SuperKeySource.rightCommand.modifierUsage == 0x7000000E3
                 && Set(SuperKeySource.allCases.map(\.usage)).count == SuperKeySource.allCases.count
                 && Set(SuperKeySource.allCases.map(\.keyCode)).count == SuperKeySource.allCases.count,
-               "stored sources are validated and each supported key has distinct HID data")
+               "stored sources are validated and each supported key has the required HID data")
+        expect(SuperKeySource.capsLock.systemImage == "capslock"
+                && SuperKeySource.rightCommand.systemImage == "command"
+                && SuperKeySource.rightOption.systemImage == "option"
+                && SuperKeySource.rightControl.systemImage == "control"
+                && SuperKeySource.rightShift.systemImage == "shift",
+               "each super key source has a matching system image")
         expect(SuperKeySupport.modifiers(from: "control+option+command")
                 == [.control, .option, .command]
                 && SuperKeySupport.modifiers(from: "shift") == .validMask
@@ -13679,12 +13690,18 @@ struct MetricsTests {
                                            destination: SuperKeySupport.noActionUsage)
         let disabledRightCommand = SuperKeyMapping(source: SuperKeySource.rightCommand.usage,
                                                    destination: SuperKeySupport.noActionUsage)
+        let disabledCommand = SuperKeyMapping(source: SuperKeySource.rightCommand.modifierUsage,
+                                              destination: SuperKeySupport.noActionUsage)
+        let foreignCommand = SuperKeyMapping(source: SuperKeySource.rightCommand.modifierUsage,
+                                             destination: 0x700000029)
         let disabledControl = SuperKeyMapping(source: 0x7000000E0,
                                               destination: SuperKeySupport.noActionUsage)
         expect(SuperKeySupport.canMapNoAction(from: [disabledCaps])
                 && !SuperKeySupport.canMapNoAction(from: [disabledControl])
                 && !SuperKeySupport.canMapNoAction(from: [disabledCaps, disabledControl])
                 && SuperKeySupport.canMapNoAction(from: [disabledRightCommand],
+                                                  source: .rightCommand)
+                && SuperKeySupport.canMapNoAction(from: [disabledCommand],
                                                   source: .rightCommand)
                 && !SuperKeySupport.canMapNoAction(from: []),
                "the shared no-action sentinel is recovered only when the source owns it")
@@ -13694,8 +13711,12 @@ struct MetricsTests {
                 && !SuperKeySupport.modifierMappingsAllowSuperKey(
                     [disabledCaps, disabledControl]
                 )
-                && !SuperKeySupport.modifierMappingsAllowSuperKey([foreignCapsMapping]),
-               "an external or shared Modifier Keys rule for Caps Lock blocks activation")
+                && !SuperKeySupport.modifierMappingsAllowSuperKey([foreignCapsMapping])
+                && SuperKeySupport.modifierMappingsAllowSuperKey([disabledCommand],
+                                                                 source: .rightCommand)
+                && !SuperKeySupport.modifierMappingsAllowSuperKey([foreignCommand],
+                                                                  source: .rightCommand),
+               "an external or shared Modifier Keys rule blocks activation while source no-action is recoverable")
         let noActionReport = """
         HIDKeyboardModifierMappingPairs = {
           HIDKeyboardModifierMappingSrc = 30064771129;

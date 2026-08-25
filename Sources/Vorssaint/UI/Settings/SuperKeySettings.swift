@@ -58,9 +58,7 @@ struct SuperKeySettings: View {
             Section(text.soloSection) {
                 Picker(text.soloSection, selection: soloBinding) {
                     Text(text.soloNothing).tag(SuperKeySoloAction.none)
-                    if source == .capsLock {
-                        Text(text.soloCapsLock).tag(SuperKeySoloAction.capsLock)
-                    }
+                    Text(text.soloCapsLock).tag(SuperKeySoloAction.capsLock)
                     Text(text.soloInputSource).tag(SuperKeySoloAction.inputSource)
                     Text(text.soloEscape).tag(SuperKeySoloAction.escape)
                 }
@@ -171,9 +169,6 @@ struct SuperKeySettings: View {
             source
         } set: { source in
             sourceRaw = source.rawValue
-            if source != .capsLock, SuperKeySoloAction.sanitized(soloActionRaw) == .capsLock {
-                soloActionRaw = SuperKeySoloAction.none.rawValue
-            }
             SuperKeyService.shared.syncWithPreferences()
         }
     }

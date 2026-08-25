@@ -1648,7 +1648,7 @@ struct QuickControlsSection: View {
             PanelToggleRow(title: superKeyStrings.pageTitle,
                            caption: caption(modifierCaption,
                                             needsAccessibility: superKeyEnabled),
-                           systemImage: "capslock",
+                           systemImage: superKeySource.systemImage,
                            isOn: $superKeyEnabled,
                            isEditing: editing,
                            showsDragHandle: true,

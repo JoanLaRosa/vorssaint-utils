@@ -23,6 +23,29 @@ enum SuperKeySource: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The generic/left-side usage written by System Settings > Keyboard >
+    /// Modifier Keys for this modifier family. UserKeyMapping still needs the
+    /// right-side `usage` above so only the chosen physical key becomes Super.
+    var modifierUsage: UInt64 {
+        switch self {
+        case .capsLock: usage
+        case .rightControl: 0x7000000E0
+        case .rightShift: 0x7000000E1
+        case .rightOption: 0x7000000E2
+        case .rightCommand: 0x7000000E3
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .capsLock: "capslock"
+        case .rightCommand: "command"
+        case .rightOption: "option"
+        case .rightControl: "control"
+        case .rightShift: "shift"
+        }
+    }
+
     var keyCode: Int64 {
         switch self {
         case .capsLock: Int64(kVK_CapsLock)
@@ -212,7 +235,8 @@ enum SuperKeySupport {
                 .filter { $0.destination == noActionUsage }
                 .map(\.source)
         )
-        return disabledSources == [source.usage]
+        let sourceUsages = Set([source.usage, source.modifierUsage])
+        return !disabledSources.isEmpty && disabledSources.isSubset(of: sourceUsages)
     }
 
     /// A Modifier Keys rule runs before UserKeyMapping. The source may proceed
@@ -220,7 +244,7 @@ enum SuperKeySupport {
     /// no-action sentinel that can be recovered without affecting another key.
     static func modifierMappingsAllowSuperKey(_ mappings: [SuperKeyMapping],
                                               source: SuperKeySource = .capsLock) -> Bool {
-        !mappings.contains { $0.source == source.usage }
+        !mappings.contains { $0.source == source.usage || $0.source == source.modifierUsage }
             || canMapNoAction(from: mappings, source: source)
     }
 
