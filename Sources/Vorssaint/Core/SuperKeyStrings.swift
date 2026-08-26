@@ -6,6 +6,7 @@ import Foundation
 struct SuperKeyStrings {
     let pageTitle: String
     let hubDescription: String
+    let enableToggle: String
     let enableCaption: String
     let modifierKeysNote: String
     let sourceKey: String
@@ -63,6 +64,7 @@ extension SuperKeyStrings {
     static let enUS = SuperKeyStrings(
         pageTitle: "Super key",
         hubDescription: "Turns one key into the modifier combination you choose.",
+        enableToggle: "Use this key as the super key",
         enableCaption: "Hold it and press any key. Choose one or more modifiers below.",
         modifierKeysNote: "Keep this key set to its default action in System Settings > Keyboard > Modifier Keys.",
         sourceKey: "Key to hold",
@@ -85,6 +87,7 @@ extension SuperKeyStrings {
     static let ptBR = SuperKeyStrings(
         pageTitle: "Tecla super",
         hubDescription: "Transforma uma tecla na combinação de modificadores que você escolher.",
+        enableToggle: "Usar esta tecla como tecla super",
         enableCaption: "Segure e aperte qualquer tecla. Escolha um ou mais modificadores abaixo.",
         modifierKeysNote: "Mantenha esta tecla com a ação padrão em Ajustes do Sistema > Teclado > Teclas Modificadoras.",
         sourceKey: "Tecla para segurar",
@@ -107,6 +110,7 @@ extension SuperKeyStrings {
     static let tr = SuperKeyStrings(
         pageTitle: "Süper tuş",
         hubDescription: "Bir tuşu seçtiğiniz değiştirici tuş birleşimine dönüştürür.",
+        enableToggle: "Bu tuşu süper tuş olarak kullan",
         enableCaption: "Basılı tutup herhangi bir tuşa basın. Aşağıdan bir veya daha fazla değiştirici seçin.",
         modifierKeysNote: "Bu tuşu Sistem Ayarları > Klavye > Niteleme Tuşları bölümünde varsayılan eyleminde bırakın.",
         sourceKey: "Basılı tutulacak tuş",
@@ -129,6 +133,7 @@ extension SuperKeyStrings {
     static let ru = SuperKeyStrings(
         pageTitle: "Суперклавиша",
         hubDescription: "Превращает одну клавишу в выбранное сочетание клавиш-модификаторов.",
+        enableToggle: "Использовать эту клавишу как суперклавишу",
         enableCaption: "Удерживайте её и нажмите любую клавишу. Выберите ниже один или несколько модификаторов.",
         modifierKeysNote: "Оставьте для этой клавиши действие по умолчанию в Системных настройках > Клавиатура > Клавиши-модификаторы.",
         sourceKey: "Клавиша для удержания",
@@ -151,6 +156,7 @@ extension SuperKeyStrings {
     static let es = SuperKeyStrings(
         pageTitle: "Tecla súper",
         hubDescription: "Convierte una tecla en la combinación de modificadores que elijas.",
+        enableToggle: "Usar esta tecla como tecla súper",
         enableCaption: "Mantenla pulsada y pulsa cualquier tecla. Elige uno o más modificadores abajo.",
         modifierKeysNote: "Mantén esta tecla con su acción predeterminada en Ajustes del Sistema > Teclado > Teclas de modificación.",
         sourceKey: "Tecla que mantener pulsada",
@@ -173,6 +179,7 @@ extension SuperKeyStrings {
     static let de = SuperKeyStrings(
         pageTitle: "Supertaste",
         hubDescription: "Macht eine Taste zu deiner gewählten Sondertastenkombination.",
+        enableToggle: "Diese Taste als Supertaste verwenden",
         enableCaption: "Halte sie und drücke eine beliebige Taste. Wähle unten eine oder mehrere Sondertasten.",
         modifierKeysNote: "Lass für diese Taste unter Systemeinstellungen > Tastatur > Sondertasten die Standardaktion eingestellt.",
         sourceKey: "Zu haltende Taste",
@@ -195,6 +202,7 @@ extension SuperKeyStrings {
     static let fr = SuperKeyStrings(
         pageTitle: "Touche super",
         hubDescription: "Transforme une touche en la combinaison de modificateurs de votre choix.",
+        enableToggle: "Utiliser cette touche comme touche Super",
         enableCaption: "Maintenez-la et appuyez sur n'importe quelle touche. Choisissez un ou plusieurs modificateurs ci-dessous.",
         modifierKeysNote: "Conservez l’action par défaut de cette touche dans Réglages Système > Clavier > Touches de modification.",
         sourceKey: "Touche à maintenir",
@@ -217,6 +225,7 @@ extension SuperKeyStrings {
     static let it = SuperKeyStrings(
         pageTitle: "Tasto super",
         hubDescription: "Trasforma un tasto nella combinazione di modificatori che scegli.",
+        enableToggle: "Usa questo tasto come tasto Super",
         enableCaption: "Tienilo premuto e premi un tasto qualsiasi. Scegli uno o più modificatori qui sotto.",
         modifierKeysNote: "Mantieni l’azione predefinita per questo tasto in Impostazioni di Sistema > Tastiera > Tasti modificatori.",
         sourceKey: "Tasto da tenere premuto",
@@ -239,6 +248,7 @@ extension SuperKeyStrings {
     static let ja = SuperKeyStrings(
         pageTitle: "スーパーキー",
         hubDescription: "1つのキーを選んだ修飾キーの組み合わせに変えます。",
+        enableToggle: "このキーをスーパーキーとして使う",
         enableCaption: "押したまま好きなキーを押してください。下から1つ以上の修飾キーを選びます。",
         modifierKeysNote: "システム設定 > キーボード > 修飾キーで、このキーをデフォルトの動作にしてください。",
         sourceKey: "長押しするキー",
@@ -261,6 +271,7 @@ extension SuperKeyStrings {
     static let ko = SuperKeyStrings(
         pageTitle: "슈퍼 키",
         hubDescription: "키 하나를 선택한 조합 키 묶음으로 바꿉니다.",
+        enableToggle: "이 키를 슈퍼 키로 사용",
         enableCaption: "누른 채로 아무 키나 누르세요. 아래에서 조합 키를 하나 이상 선택하세요.",
         modifierKeysNote: "시스템 설정 > 키보드 > 보조 키에서 이 키를 기본 동작으로 유지하세요.",
         sourceKey: "길게 누를 키",
@@ -283,6 +294,7 @@ extension SuperKeyStrings {
     static let zhHans = SuperKeyStrings(
         pageTitle: "超级键",
         hubDescription: "把一个按键变成你选择的修饰键组合。",
+        enableToggle: "将此键用作超级键",
         enableCaption: "按住它再按任意键。请在下方选择一个或多个修饰键。",
         modifierKeysNote: "请在系统设置 > 键盘 > 修饰键中将此按键保留为默认操作。",
         sourceKey: "要按住的按键",
@@ -305,6 +317,7 @@ extension SuperKeyStrings {
     static let zhTW = SuperKeyStrings(
         pageTitle: "超級鍵",
         hubDescription: "把一個按鍵變成你選擇的修飾鍵組合。",
+        enableToggle: "將此鍵用作 Super 鍵",
         enableCaption: "按住它再按任何鍵。請在下方選擇一個或多個修飾鍵。",
         modifierKeysNote: "請在系統設定 > 鍵盤 > 輔助按鍵中將此按鍵保留為預設動作。",
         sourceKey: "要按住的按鍵",
@@ -327,6 +340,7 @@ extension SuperKeyStrings {
     static let zhHK = SuperKeyStrings(
         pageTitle: "超級鍵",
         hubDescription: "將一個按鍵變成你揀嘅修飾鍵組合。",
+        enableToggle: "將此鍵用作 Super 鍵",
         enableCaption: "按住佢再撳任何鍵。喺下面揀一個或多個修飾鍵。",
         modifierKeysNote: "請喺系統設定 > 鍵盤 > 輔助按鍵入面將呢個按鍵保留為預設動作。",
         sourceKey: "要按住嘅按鍵",

@@ -32,7 +32,7 @@ struct SuperKeySettings: View {
     var body: some View {
         Form {
             Section(text.pageTitle) {
-                Toggle(text.pageTitle, isOn: $enabled)
+                Toggle(text.enableToggle, isOn: $enabled)
                     .onChange(of: enabled) { _, value in
                         SuperKeyService.shared.syncWithPreferences()
                         guard value, !permissions.accessibility else { return }

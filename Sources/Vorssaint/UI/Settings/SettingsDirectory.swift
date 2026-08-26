@@ -20,9 +20,8 @@ struct SettingsDirectoryItem: Identifiable {
 enum SettingsDirectory {
     static func sections(_ s: Strings,
                          language: AppLanguage,
-                         superKeySource: SuperKeySource = SuperKeySource.sanitized(
-                             UserDefaults.standard.string(forKey: DefaultsKey.superKeySource)
-                         )) -> [(title: String, items: [SettingsDirectoryItem])] {
+                         superKeySource: SuperKeySource = SuperKeyService.shared.source)
+        -> [(title: String, items: [SettingsDirectoryItem])] {
         let categories = FeatureStrings.settingsCategories(language)
         return [
             (categories.essentials, [

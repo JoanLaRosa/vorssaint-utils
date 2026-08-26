@@ -415,6 +415,8 @@ final class SuperKeyService: ObservableObject {
             if publishingRunState {
                 self.stop()
             } else {
+                // A failed repair keeps the existing tap alive so a later
+                // repair can recover without rebuilding the event pipeline.
                 self.isRunning = false
             }
             self.setMappingFailure(failure)
