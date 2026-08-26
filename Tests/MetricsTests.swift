@@ -359,6 +359,10 @@ struct MetricsTests {
                "clipboard preview uses Space after keyboard navigation")
         expect(!ClipboardHistoryPreview.handlesSpace(selectionIsVisible: true, hasModifiers: true),
                "clipboard preview never steals modified Space shortcuts")
+        expect(ClipboardHistoryEscape.action(batchCount: 0) == .hideWindow,
+               "Esc closes the panel when nothing is selected")
+        expect(ClipboardHistoryEscape.action(batchCount: 2) == .clearBatchSelection,
+               "Esc clears a batch selection before it closes the panel")
         expect(ClipboardHistoryEditing.canSave(original: "First draft", draft: "Second draft"),
                "clipboard text can save a real edit")
         expect(!ClipboardHistoryEditing.canSave(original: "Same", draft: "Same"),
@@ -1815,10 +1819,47 @@ struct MetricsTests {
                "App Switcher keeps shortcut hints visible by default and carries the choice in backups")
         expect(SwitcherSupport.usesIconRowLayout(iconRowMode: false, simpleMode: true),
                "App Switcher simple mode always uses the app icon row")
-        expect(SwitcherSupport.usesWindowRow(simpleMode: true, mergeWindowsByApp: false)
-               && !SwitcherSupport.usesWindowRow(simpleMode: true, mergeWindowsByApp: true)
-               && !SwitcherSupport.usesWindowRow(simpleMode: false, mergeWindowsByApp: false),
-               "App Switcher simple mode lists windows unless one-entry-per-app is enabled")
+        expect(SwitcherSupport.usesWindowRow(simpleMode: true,
+                                             mergeWindowsByApp: false,
+                                             sessionScope: .allApps)
+               && !SwitcherSupport.usesWindowRow(simpleMode: true,
+                                                  mergeWindowsByApp: true,
+                                                  sessionScope: .allApps)
+               && SwitcherSupport.usesWindowRow(simpleMode: true,
+                                                 mergeWindowsByApp: true,
+                                                 sessionScope: .frontmostApp)
+               && !SwitcherSupport.usesWindowRow(simpleMode: false,
+                                                  mergeWindowsByApp: false,
+                                                  sessionScope: .allApps),
+               "App Switcher groups all-app sessions but keeps window-scoped simple sessions per-window")
+        // The session-start layout pass reads usesWindowRow, which now depends
+        // on the session scope; teardown resets the scope to .allApps, so the
+        // scope must be assigned before the layout pass or a window-scoped
+        // panel is sized for the grouped layout on its first frame.
+        let switcherSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/Switcher/AppSwitcher.swift",
+            encoding: .utf8)) ?? ""
+        // Ends on whatever declaration comes next rather than naming the
+        // neighbour: a rename would find no separator, leave the slice running
+        // to end of file, and quietly restore the whole-file search this
+        // replaced — a failure that makes the slice bigger, so an empty check
+        // cannot see it. Hence the count assertion below.
+        let beginSessionParts = (switcherSource.components(separatedBy: "private func beginPendingSession")
+            .last ?? "").components(separatedBy: "\n    private func ")
+        let beginSessionBody = beginSessionParts.first ?? ""
+        expect(beginSessionParts.count > 1,
+               "the App Switcher ordering guard finds the end of beginPendingSession")
+        let switcherCode = beginSessionBody
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        let scopeAssign = switcherCode.range(of: "sessionScope = pending.scope")
+        let startLayout = switcherCode.range(of: "recomputeLayouts(for: list)")
+        expect(!beginSessionBody.isEmpty,
+               "the App Switcher session-start ordering guard finds beginPendingSession")
+        expect(scopeAssign != nil && startLayout != nil
+               && scopeAssign!.lowerBound < startLayout!.lowerBound,
+               "the App Switcher session scope is assigned before the session-start layout pass")
         expect(!SwitcherSupport.usesAppGroupsForMainShortcut(iconRowLayout: true,
                                                               windowRow: true)
                && SwitcherSupport.usesAppGroupsForMainShortcut(iconRowLayout: true,
@@ -2541,10 +2582,10 @@ struct MetricsTests {
         // decision above is made consciously, never by omission.
         let releasePlist = NSDictionary(contentsOfFile: "Resources/Info.plist")
         let plistVersion = (releasePlist?["CFBundleShortVersionString"] as? String) ?? ""
-        expect(plistVersion == "3.3.3-beta.2",
+        expect(plistVersion == "3.3.3-beta.3",
                "bumping the app version requires re-deciding the support prompt pin above")
         let plistBuild = (releasePlist?["CFBundleVersion"] as? String) ?? ""
-        expect(plistBuild == "81",
+        expect(plistBuild == "82",
                "every app version needs its own incremented bundle build")
         expect(SupportUpdateIntroInfo.releaseVersion == "3.3.2",
                "the support prompt remains deliberately pinned to 3.3.2")
@@ -2783,6 +2824,47 @@ struct MetricsTests {
         expect(!StatusItemAnchorSupport.isTrustworthyStatusFrame(CGRect(x: 1135, y: 0, width: 38, height: 37),
                                                                  screenFrames: attachedScreens),
                "a frame down at the bottom of a screen is not a menu bar item")
+
+        // A screen showing a fullscreen window reserves no menu bar: its
+        // visible area is the whole frame. The band is a fixed thickness off
+        // the screen's own top edge, so an item revealed on hover still counts;
+        // a band measured as `frame.maxY - visibleFrame.maxY` would collapse to
+        // nothing here and decline the icon while it is visible and clickable.
+        let fullscreenScreen = CGRect(x: 0, y: 0, width: 1470, height: 956)
+        let fullscreenVisibleFrame = fullscreenScreen
+        expect(StatusItemAnchorSupport.menuBarBand > fullscreenScreen.maxY - fullscreenVisibleFrame.maxY,
+               "the menu bar band does not shrink to what a fullscreen screen reserves")
+        expect(StatusItemAnchorSupport.isTrustworthyStatusFrame(CGRect(x: 1135, y: 919, width: 38, height: 37),
+                                                                screenFrames: [fullscreenScreen]),
+               "a status item revealed over a fullscreen window is a trustworthy anchor")
+
+        // These AppKit owners are not part of the pure-helper test binary, so
+        // pin that neither caller can consume a parked status-item frame.
+        let statusAnchorAppDelegateSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/App/AppDelegate.swift",
+            encoding: .utf8)) ?? ""
+        let stripCommentLines: (String) -> String = {
+            $0.split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+        }
+        // Sliced at the closing brace of the closure/function itself, so the
+        // slice can never run past it into an unrelated body that happens to
+        // carry the same words.
+        let shelfProviderCode = stripCommentLines((statusAnchorAppDelegateSource
+            .components(separatedBy: "ShelfService.shared.statusItemFrameProvider =").last ?? "")
+            .components(separatedBy: "\n        }").first ?? "")
+        let statusControllerSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/App/StatusItemController.swift",
+            encoding: .utf8)) ?? ""
+        let statusHitTestCode = stripCommentLines((statusControllerSource
+            .components(separatedBy: "func containsStatusItem(at screenPoint: NSPoint) -> Bool {").last ?? "")
+            .components(separatedBy: "\n    }").first ?? "")
+        let statusFrameCall = "StatusItemAnchorSupport.isTrustworthyStatusFrame("
+        expect(shelfProviderCode.contains("guard \(statusFrameCall)") && shelfProviderCode.contains("return nil"),
+               "the Shelf provider rejects an untrustworthy status-item frame")
+        expect(statusHitTestCode.contains(statusFrameCall) && statusHitTestCode.contains("return false"),
+               "status-item hit testing rejects an untrustworthy frame")
 
         // The panel keeps its top edge and its center while its content resizes.
         let panelArea = CGRect(x: 0, y: 0, width: 1470, height: 932)
@@ -3980,8 +4062,10 @@ struct MetricsTests {
         expect(autoQuitServiceCode.contains(
                    "AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windows) == .cannotComplete"),
                "AutoQuit probes a watched app for liveness by asking for its windows")
-        expect(!autoQuitServiceCode.contains("appElement, kAXRoleAttribute"),
-               "AutoQuit never asks a watched app's application element for its role")
+        // The same read reached the application element a second way, up the
+        // parent chain of an element that never yields a window. Two files
+        // carried that walk, so both the rule and its guard are repo wide
+        // further down rather than a grep per copy here.
         expect(Defaults.sanitizedPanelItemOrder("uninstaller,homebrew,homebrew,bad",
                                                 defaultOrder: ["homebrew", "media", "uninstaller", "cleanURL", "cleaning"])
                == ["uninstaller", "homebrew", "media", "cleanURL", "cleaning"],
@@ -6956,6 +7040,28 @@ struct MetricsTests {
                                                                   availableHeight: 1200)
         expect(bogusSaved.width == 772 && bogusSaved.height == 838,
                "a saved size below the minimum falls back to the default")
+        let preferredSettingsFrame = CGRect(x: -50, y: 100, width: 1000, height: 700)
+        let overlappingPlacement = SettingsWindowSupport.panelPlacement(
+            preferredFrame: preferredSettingsFrame,
+            panelFrame: CGRect(x: 450, y: 500, width: 300, height: 300),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1200, height: 900))
+        expect(overlappingPlacement.closesPanel
+                && overlappingPlacement.frame == CGRect(x: 20, y: 100, width: 1000, height: 700),
+               "failed avoidance closes the panel and clamps the preferred settings frame")
+        let separatePlacement = SettingsWindowSupport.panelPlacement(
+            preferredFrame: CGRect(x: 600, y: 100, width: 800, height: 700),
+            panelFrame: CGRect(x: 1200, y: 500, width: 300, height: 300),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1600, height: 900))
+        expect(!separatePlacement.closesPanel
+                && separatePlacement.frame.maxX == 1172,
+               "successful avoidance keeps the panel beside settings")
+        let verticalPlacement = SettingsWindowSupport.panelPlacement(
+            preferredFrame: CGRect(x: 100, y: 400, width: 1000, height: 300),
+            panelFrame: CGRect(x: 450, y: 500, width: 300, height: 100),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1200, height: 900))
+        expect(!verticalPlacement.closesPanel
+                && verticalPlacement.frame.maxY == 472,
+               "vertical avoidance moves settings below the panel with the standard gap")
 
         expect(UpdateInstallerSupport.shouldForceAdminInstall(afterFailureCode: "fail-copy"),
                "a copy failure retries through the admin prompt")
@@ -9124,6 +9230,25 @@ struct MetricsTests {
                                                     changelog: "## [2.17.4]\n\n" + inAppUpdateBody)
         expect(githubPreviewNotes.sections.first?.bulletItems == ["Update preview stays focused on changes."],
                "in-app update notes keep release changes after removing the footer")
+        let unreleasedChangelog = """
+        ## [Unreleased]
+
+        ### Added
+        - Feature pending release.
+
+        ## [2.17.4] - 2026-06-18
+
+        ### Fixed
+        - Shipped fix.
+        """
+        let unreleasedNotes = ReleaseNotes.notes(for: "Unreleased", changelog: unreleasedChangelog)
+        expect(unreleasedNotes.version == "Unreleased" && unreleasedNotes.date == nil
+               && unreleasedNotes.sections.first?.bulletItems == ["Feature pending release."],
+               "release notes parse unreleased blocks without dates")
+        expect(ReleaseNotes.allVersions(changelog: unreleasedChangelog) == ["2.17.4"],
+               "allVersions excludes the unreleased header")
+        expect(ReleaseNotes.rawNotes(for: "dev", changelog: unreleasedChangelog).contains("Feature pending release."),
+               "rawNotes for dev falls back to the unreleased block")
 
         // MARK: URL cleaning
 
@@ -10561,6 +10686,13 @@ struct MetricsTests {
                 && FanControlPolicy.coolingTargetRPM(minimum: 5_800, maximum: 5_800,
                                                      level: 100) == nil,
                "manual targets map the full percentage scale into reported hardware bounds")
+        expect(FanControlPolicy.targetRPMMatches(target: 3_121, expected: 3_121)
+                && FanControlPolicy.targetRPMMatches(target: 3_122, expected: 3_121)
+                && FanControlPolicy.targetRPMMatches(target: 1_201.5, expected: 1_200)
+                && !FanControlPolicy.targetRPMMatches(target: 3_500, expected: 3_121)
+                && !FanControlPolicy.targetRPMMatches(target: 1_205, expected: 1_200)
+                && !FanControlPolicy.targetRPMMatches(target: .nan, expected: 1_200),
+               "fan target verification allows a narrow tolerance and rejects stale or malformed targets")
 
         let defaultCurve = FanControlConfiguration.defaultCurve
         expect(FanControlPolicy.validConfiguration(.manual(level: 0))
@@ -10614,6 +10746,24 @@ struct MetricsTests {
                     FanControlConfiguration.encodeCurves([defaultCurve]) ?? "") == [defaultCurve]
                 && FanControlConfiguration.decodeCurves("not json") == nil,
                "stored curves reject duplicate sensors, unsafe slopes and malformed data")
+        let addedPoints = FanControlPolicy.addingCurvePoint(to: defaultCurve.points)
+        expect(FanControlPolicy.nextCurvePoint(for: defaultCurve.points) == FanControlCurvePoint(temperature: 60, coolingLevel: 50)
+                && addedPoints == [
+                    FanControlCurvePoint(temperature: 50, coolingLevel: 0),
+                    FanControlCurvePoint(temperature: 60, coolingLevel: 50),
+                    FanControlCurvePoint(temperature: 70, coolingLevel: 100),
+                ]
+                && FanControlPolicy.validCurve(FanControlCurve(sensor: .hottestSoC, points: addedPoints ?? [])),
+               "adding a fan curve point calculates the intermediate point and produces a valid sorted curve")
+        var iterativePoints = defaultCurve.points
+        while let next = FanControlPolicy.addingCurvePoint(to: iterativePoints) {
+            iterativePoints = next
+        }
+        expect(iterativePoints.count == FanControlPolicy.maximumCurvePointCount
+                && FanControlPolicy.validCurve(FanControlCurve(sensor: .hottestSoC, points: iterativePoints))
+                && FanControlPolicy.nextCurvePoint(for: iterativePoints) == nil
+                && FanControlPolicy.addingCurvePoint(to: iterativePoints) == nil,
+               "adding fan curve points fills up to the maximum point limit with strictly valid curves")
         let m3FanTemperatures = FanControlPolicy.aggregatedTemperatures(
             cpuReadings: [("Te05", 44), ("Tf4E", 53), ("Tf4F", 76)],
             gpuReadings: [48],
@@ -11202,7 +11352,7 @@ struct MetricsTests {
                    "no em-dash in visible camera preview strings (\(language.rawValue))")
             let radialMenuValues = Mirror(reflecting: FeatureStrings.radialMenu(language)).children
                 .compactMap { $0.value as? String }
-            expect(radialMenuValues.count == 58 && radialMenuValues.allSatisfy { !$0.isEmpty },
+            expect(radialMenuValues.count == 90 && radialMenuValues.allSatisfy { !$0.isEmpty },
                    "every radial menu string is set for \(language.rawValue)")
             expect(radialMenuValues.allSatisfy { !$0.contains("—") },
                    "no em-dash in visible radial menu strings (\(language.rawValue))")
@@ -11976,6 +12126,230 @@ struct MetricsTests {
                                          clipboard: "{{date:yyyy}}") == "clip: {{date:yyyy}}",
                "pasted clipboard text is never re-expanded")
 
+        // Timezone-qualified date variables
+        var tzTestCalendar = Calendar(identifier: .gregorian)
+        tzTestCalendar.timeZone = TimeZone(identifier: "UTC")!
+        let zonedDate = tzTestCalendar.date(from: DateComponents(year: 2025, month: 7, day: 1,
+                                                                 hour: 12, minute: 30, second: 15))!
+        expect(TextSnippetSupport.expand("{{datetime-tz(UTC):yyyy-MM-dd'T'HH:mm:ss}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "2025-07-01T12:30:15",
+               "a UTC-tagged datetime token formats in UTC regardless of the device's zone")
+        expect(TextSnippetSupport.expand("{{date-tz(UTC):yyyy-MM-dd}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS) == "2025-07-01",
+               "a UTC-tagged date token formats in UTC")
+        expect(TextSnippetSupport.expand("{{time-tz(UTC):HH:mm:ss}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS) == "12:30:15",
+               "a UTC-tagged time token formats in UTC")
+        expect(TextSnippetSupport.expand("{{datetime-tz(Asia/Tokyo):yyyy-MM-dd HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "2025-07-01 21:30",
+               "a token tagged with a specific zone shifts the clock by that zone's offset")
+        // Asserted against a fixed non-UTC zone rather than the device's:
+        // CI runners are UTC, where a leak and no leak look identical.
+        expect(TextSnippetSupport.expand("{{time-tz(Asia/Tokyo):HH:mm}} then {{time-tz(UTC):HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "21:30 then 12:30",
+               "a time zone on one token does not leak into a later token with its own")
+        // The likelier leak: one shared DateFormatter has to be reset back
+        // to the device zone for a plain token following a zoned one.
+        // Compared against the plain token's own output so it holds on
+        // CI's UTC runners as well as a machine in any other zone.
+        expect(TextSnippetSupport.expand("{{time-tz(Asia/Tokyo):HH:mm}}|{{time:HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "21:30|" + TextSnippetSupport.expand("{{time:HH:mm}}", date: zonedDate,
+                                                        clipboard: nil, locale: enUS),
+               "a zoned token does not leak into a later plain one")
+        expect(TextSnippetSupport.expand("{{datetime-tz(Not/ARealZone):yyyy-MM-dd HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "{{datetime-tz(Not/ARealZone):yyyy-MM-dd HH:mm}}",
+               "an unrecognized time zone stays a literal tag instead of quietly using the device zone")
+        expect(TextSnippetSupport.expand("{{datetime-tz(America/New York):yyyy-MM-dd HH:mm}}",
+                                         date: zonedDate, clipboard: nil, locale: enUS)
+                == "{{datetime-tz(America/New York):yyyy-MM-dd HH:mm}}",
+               "a space where the identifier needs an underscore is visibly wrong, not silently local")
+
+        // Date variable builder logic
+        expect(TextSnippetSupport.resolvedDatePattern(kind: .date, style: .iso8601,
+                                                       customPattern: "", locale: enUS) == "yyyy-MM-dd",
+               "ISO 8601 date style resolves to the fixed ISO date pattern")
+        expect(TextSnippetSupport.resolvedDatePattern(kind: .time, style: .iso8601,
+                                                       customPattern: "", locale: enUS) == "HH:mm:ssXXX",
+               "ISO 8601 time style resolves to the fixed ISO time pattern with an offset token")
+        expect(TextSnippetSupport.resolvedDatePattern(kind: .datetime, style: .iso8601,
+                                                       customPattern: "", locale: enUS)
+                == "yyyy-MM-dd'T'HH:mm:ssXXX",
+               "ISO 8601 datetime style resolves to the fixed ISO datetime pattern")
+        expect(TextSnippetSupport.resolvedDatePattern(kind: .date, style: .custom,
+                                                       customPattern: "dd/MM/yyyy", locale: enUS)
+                == "dd/MM/yyyy",
+               "custom style passes the raw pattern through untouched")
+        expect(!TextSnippetSupport.resolvedDatePattern(kind: .date, style: .medium,
+                                                        customPattern: "", locale: enUS).isEmpty,
+               "a system style resolves to some non-empty pattern (exact text is OS/locale dependent)")
+
+        expect(TextSnippetSupport.dateVariableText(kind: .date, style: .iso8601, customPattern: "",
+                                                    timeZoneIdentifier: nil, locale: enUS)
+                == "{{date:yyyy-MM-dd}}",
+               "building a token with no timezone omits the -tz(...) suffix")
+        expect(TextSnippetSupport.dateVariableText(kind: .datetime, style: .iso8601, customPattern: "",
+                                                    timeZoneIdentifier: "UTC", locale: enUS)
+                == "{{datetime-tz(UTC):yyyy-MM-dd'T'HH:mm:ssXXX}}",
+               "building a token with a timezone adds the -tz(...) suffix")
+        expect(TextSnippetSupport.dateVariableText(kind: .time, style: .custom, customPattern: "HH:mm",
+                                                    timeZoneIdentifier: "Asia/Tokyo", locale: enUS)
+                == "{{time-tz(Asia/Tokyo):HH:mm}}",
+               "a custom pattern with a timezone builds the same tagged token shape")
+
+        expect(TextSnippetSupport.dateVariablePreview(kind: .datetime, style: .iso8601, customPattern: "",
+                                                       timeZoneIdentifier: "UTC", date: zonedDate,
+                                                       locale: enUS) == "2025-07-01T12:30:15Z",
+               "the preview matches what expansion would produce for the same settings")
+        expect(TextSnippetSupport.dateVariablePreview(kind: .date, style: .custom, customPattern: "",
+                                                       timeZoneIdentifier: nil, date: zonedDate,
+                                                       locale: enUS).isEmpty,
+               "an empty custom pattern previews as empty rather than crashing on an empty date format")
+
+        // Date variable token detection
+        let tokenSample = "Hi {{date:MMM d}} and {{datetime-tz(UTC):yyyy}} end"
+        let insideDate = tokenSample.index(tokenSample.startIndex, offsetBy: 6)
+        let detectedDate = TextSnippetSupport.dateToken(in: tokenSample, at: insideDate)
+        expect(detectedDate?.kind == .date && detectedDate?.pattern == "MMM d"
+                && detectedDate?.timeZoneIdentifier == nil,
+               "the cursor inside a plain date token detects its kind and pattern")
+
+        let insideZoned = tokenSample.range(of: "UTC")!.lowerBound
+        let detectedZoned = TextSnippetSupport.dateToken(in: tokenSample, at: insideZoned)
+        expect(detectedZoned?.kind == .datetime && detectedZoned?.pattern == "yyyy"
+                && detectedZoned?.timeZoneIdentifier == "UTC",
+               "the cursor inside a timezone-qualified token detects its kind, pattern and zone")
+
+        expect(TextSnippetSupport.dateToken(in: tokenSample, at: tokenSample.startIndex) == nil,
+               "a cursor outside any tag detects nothing")
+
+        // The detected range is what the editor later splices over, and it
+        // reaches that splice as offsets so it cannot be read against a
+        // string it was not measured from.
+        expect(detectedDate.map {
+            String(tokenSample[TextSnippetSupport.selectionRange(in: tokenSample, offsets: $0.offsets)])
+        } == "{{date:MMM d}}",
+               "a detected token's offsets span exactly the token, braces included")
+        expect(detectedZoned.map {
+            String(tokenSample[TextSnippetSupport.selectionRange(in: tokenSample, offsets: $0.offsets)])
+        } == "{{datetime-tz(UTC):yyyy}}",
+               "a timezone-qualified token's offsets span the whole tag")
+
+        // The editor keeps the selection as offsets recorded when the
+        // selection last moved, so an edit that shortened the text since
+        // leaves them past the end. They must clamp, never trap.
+        let selectionText = "abcdef"
+        expect(TextSnippetSupport.selectionRange(in: selectionText, offsets: 2..<4)
+                == selectionText.index(selectionText.startIndex, offsetBy: 2)
+                    ..< selectionText.index(selectionText.startIndex, offsetBy: 4),
+               "an in-range selection maps to exactly those characters")
+        expect(TextSnippetSupport.selectionRange(in: selectionText, offsets: nil)
+                == selectionText.endIndex..<selectionText.endIndex,
+               "no tracked selection puts the caret at the end")
+        expect(TextSnippetSupport.selectionRange(in: "ab", offsets: 5..<9)
+                == "ab".endIndex..<"ab".endIndex,
+               "offsets left over from longer text clamp to the end instead of trapping")
+        expect(TextSnippetSupport.selectionRange(in: "abcd", offsets: 2..<99)
+                == "abcd".index("abcd".startIndex, offsetBy: 2)..<"abcd".endIndex,
+               "a selection running past the end clamps only its upper bound")
+        expect(TextSnippetSupport.selectionRange(in: "", offsets: 3..<7)
+                == "".startIndex..<"".startIndex,
+               "empty text clamps every offset to the start")
+        expect(TextSnippetSupport.selectionRange(in: "e\u{301}fg", offsets: 1..<2)
+                == "e\u{301}fg".index("e\u{301}fg".startIndex, offsetBy: 1)
+                    ..< "e\u{301}fg".index("e\u{301}fg".startIndex, offsetBy: 2),
+               "offsets count characters, so a combining mark stays with its base")
+
+        let unknownTagText = "see {{clipboard}} here"
+        let insideUnknown = unknownTagText.index(unknownTagText.startIndex, offsetBy: 6)
+        expect(TextSnippetSupport.dateToken(in: unknownTagText, at: insideUnknown) == nil,
+               "a cursor inside a non-date tag like clipboard detects nothing")
+
+        let unclosedText = "start {{date:yyyy no close"
+        let insideUnclosed = unclosedText.index(unclosedText.startIndex, offsetBy: 10)
+        expect(TextSnippetSupport.dateToken(in: unclosedText, at: insideUnclosed) == nil,
+               "a cursor inside an unclosed tag detects nothing")
+
+        expect(TextSnippetSupport.dateToken(in: "", at: "".startIndex) == nil,
+               "empty text detects nothing")
+
+        let afterFirstTag = tokenSample.range(of: "{{date:MMM d}}")!.upperBound
+        expect(TextSnippetSupport.dateToken(in: tokenSample, at: afterFirstTag) == nil,
+               "a cursor immediately after a token's closing braces is not inside that token")
+        let beforeFirstTag = tokenSample.range(of: "{{date:MMM d}}")!.lowerBound
+        expect(TextSnippetSupport.dateToken(in: tokenSample, at: beforeFirstTag) == nil,
+               "a cursor immediately before a token's opening braces is not inside that token")
+
+        // Date variable builder support (timezone search and style matching)
+        expect(TextSnippetSupport.matchingDateStyle(pattern: "yyyy-MM-dd", kind: .date, locale: enUS) == .iso8601,
+               "the ISO 8601 date pattern is recognized as that style")
+        expect(TextSnippetSupport.matchingDateStyle(pattern: "not a real pattern", kind: .date, locale: enUS) == .custom,
+               "an unrecognized pattern falls back to Custom")
+
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "").isEmpty,
+               "an empty query matches nothing")
+        // Asserted as containment, not equality: the set of identifiers
+        // comes from the OS timezone database, so a future release adding
+        // another "New York" zone must not fail this.
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "new york").contains("America/New_York"),
+               "a city name with a space matches the underscored identifier")
+        // A broad query matches well over a hundred zones. The obvious
+        // answer has to be reachable, and near the top: an alphabetical
+        // list capped for the picker used to drop it entirely.
+        let americaMatches = TextSnippetSupport.matchingTimeZoneIdentifiers(for: "america")
+        expect(americaMatches.contains("America/New_York"),
+               "a broad region query still lists the major city zones")
+        // "york" and the full identifier both narrow to a single match, so
+        // neither can observe the ordering. "st" matches dozens, most of
+        // which merely contain the letters, so only ranking puts a city
+        // beginning with them at the head.
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "st").first?
+                .split(separator: "/").last?.lowercased().hasPrefix("st") == true,
+               "a city starting with the query outranks zones that merely contain it")
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "america/new_york").first
+                == "America/New_York",
+               "an exactly typed identifier resolves to itself")
+        expect(TextSnippetSupport.matchingTimeZoneIdentifiers(for: "xyz-nonsense").isEmpty,
+               "a query matching nothing returns an empty list")
+
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "America/New_York") == "America/New_York",
+               "a full identifier resolves to itself")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "america/new york") == "America/New_York",
+               "the full identifier resolves case- and separator-insensitively")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "new york", matches: ["America/New_York"])
+                == "America/New_York",
+               "a city name that narrows the suggestion list to exactly one result resolves to it")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(
+                for: "new", matches: ["America/New_York", "Europe/Newtown"]) == nil,
+               "a query still matching several identifiers stays unresolved")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "pst") == "America/Los_Angeles",
+               "a common abbreviation resolves to its canonical identifier")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "utc") == "UTC",
+               "UTC resolves even though it is not itself in TimeZone.knownTimeZoneIdentifiers")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "budapest")?.hasSuffix("Budapest") == true,
+               "a query with no exact match but exactly one substring match resolves to it")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "america") == nil,
+               "a query matching many identifiers with no exact hit stays unresolved")
+        expect(TextSnippetSupport.resolvedTimeZoneIdentifier(for: "xyz-nonsense") == nil,
+               "a query matching nothing is unresolved")
+
+        // A built token round-trips back through detection unchanged: this is
+        // exactly the path the Insert/Edit button depends on.
+        for kind in TextSnippetSupport.DateVariableKind.allCases {
+            for timeZoneIdentifier in [nil, "UTC", "Asia/Tokyo"] as [String?] {
+                let built = TextSnippetSupport.dateVariableText(kind: kind, style: .iso8601, customPattern: "",
+                                                                 timeZoneIdentifier: timeZoneIdentifier, locale: enUS)
+                let midpoint = built.index(built.startIndex, offsetBy: built.count / 2)
+                let detected = TextSnippetSupport.dateToken(in: built, at: midpoint)
+                expect(detected?.kind == kind && detected?.timeZoneIdentifier == timeZoneIdentifier,
+                       "a built \(kind.rawValue) token with timezone \(timeZoneIdentifier ?? "nil") round-trips through dateToken unchanged")
+            }
+        }
+
         // Per-snippet capitalization option (issue #304)
         let caseless = TextSnippet(name: "Caseless", trigger: ";email", replacement: "me@x.com",
                                    expansion: .afterDelimiter, enabled: true, ignoresCase: true)
@@ -12253,6 +12627,158 @@ struct MetricsTests {
                 && RadialMenuTool.cleaningMode.isRunnable(isFeatureAvailable: { _ in true },
                                                           boolFor: { _ in false }),
                "Shelf wheel slices follow the Shelf master switch without affecting on-demand tools")
+
+        // MARK: Radial menu profiles
+
+        let allColors = RadialMenuColor.allCases
+        expect(allColors.count == 12
+                && Set(allColors.map(\.rawValue)).count == 12
+                && allColors.allSatisfy { $0.id == $0.rawValue },
+               "twelve distinct radial menu accent colors")
+        let enStrings = FeatureStrings.radialMenu(.enUS)
+        expect(RadialMenuColor.accent.title(enStrings) == "Accent"
+                && RadialMenuColor.blue.title(enStrings) == "Blue"
+                && RadialMenuColor.purple.title(enStrings) == "Purple"
+                && RadialMenuColor.pink.title(enStrings) == "Pink"
+                && RadialMenuColor.red.title(enStrings) == "Red"
+                && RadialMenuColor.orange.title(enStrings) == "Orange"
+                && RadialMenuColor.yellow.title(enStrings) == "Yellow"
+                && RadialMenuColor.green.title(enStrings) == "Green"
+                && RadialMenuColor.mint.title(enStrings) == "Mint"
+                && RadialMenuColor.cyan.title(enStrings) == "Cyan"
+                && RadialMenuColor.indigo.title(enStrings) == "Indigo"
+                && RadialMenuColor.graphite.title(enStrings) == "Graphite",
+               "radial menu color titles localize properly")
+
+        let allPresets = RadialMenuProfilePreset.allCases
+        expect(allPresets.count == 6
+                && Set(allPresets.map(\.rawValue)).count == 6
+                && allPresets.allSatisfy { $0.id == $0.rawValue },
+               "six distinct radial profile presets")
+        expect(RadialMenuProfilePreset.general.makeItems().count == 6
+                && RadialMenuProfilePreset.media.makeItems().count == 4
+                && RadialMenuProfilePreset.tools.makeItems().count == 6
+                && RadialMenuProfilePreset.windowLayout.makeItems().count == 5
+                && RadialMenuProfilePreset.quickToggles.makeItems().count == 5
+                && RadialMenuProfilePreset.blank.makeItems().isEmpty,
+               "presets generate expected initial item layouts")
+
+        let customProfile = RadialMenuProfile(
+            id: UUID(),
+            name: " Media Wheel ",
+            color: .purple,
+            shortcut: "control+command:49",
+            mouseButton: RadialMenuMouseTrigger.back.rawValue,
+            items: RadialMenuProfilePreset.media.makeItems()
+        )
+        expect(customProfile.displayName(enStrings) == " Media Wheel ",
+               "profile custom name is displayed")
+        let blankNamedProfile = RadialMenuProfile(name: "", color: .accent)
+        expect(blankNamedProfile.displayName(enStrings) == enStrings.presetGeneral,
+               "blank profile name falls back to General preset title")
+
+        let encodedProfilesData = RadialMenuSupport.encodeProfiles([customProfile])
+        let decodedProfiles = RadialMenuSupport.decodeProfiles(encodedProfilesData)
+        expect(decodedProfiles.count == 1
+                && decodedProfiles[0].id == customProfile.id
+                && decodedProfiles[0].name == "Media Wheel"
+                && decodedProfiles[0].color == .purple
+                && decodedProfiles[0].shortcut == "control+command:49"
+                && decodedProfiles[0].mouseButton == RadialMenuMouseTrigger.back.rawValue
+                && decodedProfiles[0].items.count == 4,
+               "profile encodes and decodes accurately with trimmed name")
+
+        let dupID = UUID()
+        let dups = [
+            RadialMenuProfile(id: dupID, name: "First"),
+            RadialMenuProfile(id: dupID, name: "Duplicate"),
+            RadialMenuProfile(id: UUID(), name: "  Trim Me  ", shortcut: "invalidShortcutFormat"),
+        ]
+        let sanitizedDups = RadialMenuSupport.sanitizedProfiles(dups)
+        expect(sanitizedDups.count == 2
+                && sanitizedDups[0].name == "First"
+                && sanitizedDups[1].name == "Trim Me"
+                && sanitizedDups[1].shortcut.isEmpty,
+               "sanitized profiles deduplicate IDs, trim names, and drop invalid shortcuts")
+
+        let emptySanitized = RadialMenuSupport.sanitizedProfiles([])
+        expect(emptySanitized.count == 1
+                && emptySanitized[0].color == .accent
+                && !emptySanitized[0].shortcut.isEmpty
+                && emptySanitized[0].items.count == 6,
+               "sanitizing empty profile list provides one default starter profile")
+
+        let appOnlyProfile = RadialMenuProfile(
+            mouseButton: RadialMenuMouseTrigger.off.rawValue,
+            items: [RadialMenuItem(kind: .app, payload: "/Applications/Safari.app")]
+        )
+        expect(!RadialMenuSupport.needsAccessibility([appOnlyProfile]),
+               "app-only profile without mouse button does not need Accessibility")
+        let mouseProfile = RadialMenuProfile(
+            mouseButton: RadialMenuMouseTrigger.forward.rawValue,
+            items: [RadialMenuItem(kind: .app, payload: "/Applications/Safari.app")]
+        )
+        expect(RadialMenuSupport.needsAccessibility([mouseProfile]),
+               "profile with mouse trigger needs Accessibility")
+        let shortcutProfile = RadialMenuProfile(
+            mouseButton: RadialMenuMouseTrigger.off.rawValue,
+            items: [RadialMenuItem(kind: .shortcut, payload: "command:8")]
+        )
+        expect(RadialMenuSupport.needsAccessibility([shortcutProfile]),
+               "profile with keyboard shortcut slice needs Accessibility")
+
+        let profileTestDefaults = UserDefaults(suiteName: "com.vorssaint.tests.radialProfiles")!
+        profileTestDefaults.removePersistentDomain(forName: "com.vorssaint.tests.radialProfiles")
+        profileTestDefaults.set(true, forKey: AppFeature.radialMenu.availabilityKey)
+        profileTestDefaults.set(true, forKey: DefaultsKey.radialMenuEnabled)
+
+        let profileA = RadialMenuProfile(
+            name: "Work",
+            mouseButton: RadialMenuMouseTrigger.back.rawValue
+        )
+        let profileB = RadialMenuProfile(
+            name: "Fun",
+            mouseButton: RadialMenuMouseTrigger.button(4).rawValue
+        )
+        profileTestDefaults.set(RadialMenuSupport.encodeProfiles([profileA, profileB]), forKey: DefaultsKey.radialMenuProfiles)
+
+        expect(RadialMenuSupport.claimsMouseButton(MouseButtonShortcutSupport.backButtonNumber, defaults: profileTestDefaults),
+               "claims button 3 from profile A")
+        expect(RadialMenuSupport.claimsMouseButton(4, defaults: profileTestDefaults),
+               "claims button 4 from profile B")
+        expect(!RadialMenuSupport.claimsMouseButton(5, defaults: profileTestDefaults),
+               "does not claim unclaimed button 5")
+
+        profileTestDefaults.set(false, forKey: DefaultsKey.radialMenuEnabled)
+        expect(!RadialMenuSupport.claimsMouseButton(MouseButtonShortcutSupport.backButtonNumber, defaults: profileTestDefaults),
+               "disabled radial menu never claims mouse buttons")
+        profileTestDefaults.removePersistentDomain(forName: "com.vorssaint.tests.radialProfiles")
+
+        let testImage = NSImage(size: NSSize(width: 16, height: 16))
+        testImage.lockFocus()
+        NSColor.red.set()
+        NSRect(x: 0, y: 0, width: 16, height: 16).fill()
+        testImage.unlockFocus()
+        let samplePNG = RadialMenuFaviconFetcher.scaledPNGData(from: testImage, targetSize: 32)
+        expect(samplePNG != nil && (samplePNG?.count ?? 0) > 0, "scaledPNGData produces valid PNG")
+
+        let itemWithFavicon = RadialMenuItem(kind: .url, name: "Site", payload: "https://example.com", customIconData: samplePNG)
+        let encodedFaviconData = RadialMenuSupport.encode([itemWithFavicon])
+        let decodedFaviconItem = RadialMenuSupport.decode(encodedFaviconData).first
+        expect(decodedFaviconItem?.customIconData == samplePNG,
+               "customIconData survives encode and decode")
+
+        let oversizedData = Data(repeating: 0xFF, count: 70_000)
+        let itemWithOversizedIcon = RadialMenuItem(kind: .url, name: "Site", payload: "https://example.com", customIconData: oversizedData)
+        let sanitizedOversized = RadialMenuSupport.sanitized([itemWithOversizedIcon]).first
+        expect(sanitizedOversized?.customIconData == nil,
+               "sanitized drops oversized customIconData")
+
+        let invalidImageData = Data([0x00, 0x01, 0x02, 0x03])
+        let itemWithInvalidIcon = RadialMenuItem(kind: .url, name: "Site", payload: "https://example.com", customIconData: invalidImageData)
+        let sanitizedInvalid = RadialMenuSupport.sanitized([itemWithInvalidIcon]).first
+        expect(sanitizedInvalid?.customIconData == nil,
+               "sanitized drops corrupted customIconData that cannot form an NSImage")
 
         // MARK: Dock click with AX-blind apps (issue #200)
 
@@ -12825,6 +13351,28 @@ struct MetricsTests {
         expect(ScreenCaptureTool.available(isAvailable: captureFeatures.contains)
                 == [.screenshot, .recording, .text, .color],
                "the capture chooser keeps a stable order for every installed mode")
+        // The capture tools are sections side by side rather than one
+        // switcher hiding three of them, so no page state decides which is
+        // on screen and every tool's own shortcut sits in its own section
+        // (issue #757).
+        let captureSettingsSources = ["ScreenCaptureSettings", "ScreenshotSettings",
+                                      "ScreenRecorderSettings"]
+            .map { name -> String in
+                let text = (try? String(
+                    contentsOfFile: "Sources/Vorssaint/UI/Settings/\(name).swift",
+                    encoding: .utf8)) ?? ""
+                return text.components(separatedBy: "\n")
+                    .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                    .joined(separator: "\n")
+            }
+        expect(captureSettingsSources[0].contains("ForEach(availableTools")
+                && !captureSettingsSources[0].contains("selectedTool"),
+               "the capture page shows every installed tool instead of one at a time")
+        let shortcutTools = Set(captureSettingsSources.joined(separator: "\n")
+            .components(separatedBy: "ToolShortcutRows(tool: .").dropFirst()
+            .map { String($0.prefix { $0.isLetter }) })
+        expect(shortcutTools == Set(ScreenCaptureTool.allCases.map { "\($0)" }),
+               "every capture tool carries its own shortcut in its own section")
         expect(!ScreenshotSupport.captureAvailabilityChanged(
                     activeTools: [.screenshot, .recording],
                     availableTools: [.screenshot, .recording])
@@ -13677,6 +14225,63 @@ struct MetricsTests {
         }
         expect(!appSources.isEmpty && unboundedOperationWaits.isEmpty,
                "no operation queue is waited on without a deadline: \(unboundedOperationWaits)")
+
+        // Asking an application element for its role switches a Chromium app's
+        // renderers into full accessibility mode for the rest of the process's
+        // life (issue #953). It was fixed at the liveness probe, then found
+        // again in the walk up an element's parents, where the chain above a
+        // window is the application element — so the rule is the absence of
+        // that read anywhere, rather than one grep per door somebody noticed.
+        // This is a text scan, not dataflow: it knows an element is an
+        // application element only when the same file names it in a `let x =
+        // AXUIElementCreateApplication(...)`, and it reads the role attribute
+        // and its element off one line. An application element handed to a
+        // helper, stored in a property, or passed inline is still on review to
+        // catch; both reads found so far were written the direct way.
+        var applicationRoleReads: [String] = []
+        for file in appSources.sorted() {
+            guard let source = try? String(contentsOfFile: "Sources/Vorssaint/\(file)",
+                                           encoding: .utf8) else { continue }
+            let lines = source.components(separatedBy: "\n")
+            var applicationElements: Set<String> = []
+            for line in lines where line.contains("AXUIElementCreateApplication(") {
+                let assigned = (line.components(separatedBy: "=").first ?? "")
+                    .trimmingCharacters(in: .whitespaces)
+                    .components(separatedBy: " ")
+                guard assigned.count == 2, assigned[0] == "let" || assigned[0] == "var" else { continue }
+                applicationElements.insert(assigned[1])
+            }
+            for (index, line) in lines.enumerated()
+            where line.contains("kAXRoleAttribute")
+                && !line.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+                && applicationElements.contains(where: { line.contains("(\($0), ") }) {
+                applicationRoleReads.append("\(file):\(index + 1)")
+            }
+        }
+        expect(!appSources.isEmpty && applicationRoleReads.isEmpty,
+               "no application element is ever asked for its role: \(applicationRoleReads)")
+        // The scan above cannot see the other way in: a walk up kAXParent asks
+        // `parent` for its role, and the application element is what sits above
+        // the last window, so the element it reads is never named after one.
+        // Two files carried the same walk, so the rule is that anywhere doing
+        // it stops at the application element first, rather than a pin per copy.
+        var unguardedParentWalks: [String] = []
+        for file in appSources.sorted() {
+            guard let source = try? String(contentsOfFile: "Sources/Vorssaint/\(file)",
+                                           encoding: .utf8) else { continue }
+            let lines = source.components(separatedBy: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            // Per occurrence and in order: a guard sitting anywhere in the file
+            // would let a second walk go unguarded, and one written after the
+            // read would let the read happen first, which is the whole failure.
+            for (index, line) in lines.enumerated() where line.contains("role(of: parent)") {
+                let guarded = lines[max(0, index - 3)..<index]
+                    .contains { $0.contains("isApplicationElement(parent)") }
+                if !guarded { unguardedParentWalks.append("\(file):\(index + 1)") }
+            }
+        }
+        expect(!appSources.isEmpty && unguardedParentWalks.isEmpty,
+               "a walk up the parent chain stops at the application element: \(unguardedParentWalks)")
         expect(ScratchpadRetention.sanitized("day") == .day
                 && ScratchpadRetention.sanitized("week") == .week
                 && ScratchpadRetention.sanitized("month") == .month
@@ -14387,6 +14992,50 @@ struct MetricsTests {
         expect(soloState.decide(.triggerUp(timestamp: 4_000_000_000)) == .swallow,
                "holding it together with another modifier is not a tap either")
 
+        // Drag chords read their modifiers off the mouse-down, not off any
+        // keyboard event (#888), so the service must classify mouse presses
+        // like other keys and stamp them from a tap at the HID stage — the
+        // one place guaranteed to run before every session tap that reads
+        // the flags. The service file is not in this binary; pin the shape.
+        let superKeyServiceSource = (try? String(
+            contentsOfFile: "Sources/Vorssaint/Services/SuperKey/SuperKeyService.swift",
+            encoding: .utf8)) ?? ""
+        let superKeyServiceCode = superKeyServiceSource
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        expect(superKeyServiceCode.contains(".leftMouseDown, .rightMouseDown, .otherMouseDown")
+               && superKeyServiceCode.contains("mouseDownTypes.reduce(CGEventMask(0))")
+               && superKeyServiceCode.contains("mouseDownTypes.contains(type) { return .otherKey }")
+               && superKeyServiceCode.range(of: "tap: .cghidEventTap") != nil,
+               "every mouse press while the super key is held carries the modifiers, stamped at the HID stage")
+        // A mouse event carries no keycode of its own: the field reads back as
+        // 0 on one, which is the keycode for A. The read lives inside classify,
+        // below the line that answers the mouse types, so no caller holds a
+        // phantom key it could hand to something that looks keys up.
+        let keycodeReads = superKeyServiceCode
+            .components(separatedBy: ".keyboardEventKeycode").count - 1
+        let mouseAnswer = superKeyServiceCode.range(of: "mouseDownTypes.contains(type)")?.lowerBound
+        let keycodeRead = superKeyServiceCode.range(of: ".keyboardEventKeycode")?.lowerBound
+        expect(keycodeReads == 1
+               && mouseAnswer.flatMap({ answer in keycodeRead.map { answer < $0 } }) == true,
+               "a mouse press is answered before the super key ever reads a keycode")
+        // A refused mouse tap counts as dead so the health check rebuilds it,
+        // but exactly once: the rebuild takes the healthy keyboard tap down
+        // with it, and a system that refuses refuses the retry too, so an
+        // unbounded flag would hiccup super-key input at whatever rate
+        // syncWithPreferences fires. The count has to outlive the teardown its
+        // own value asked for, so the only place it is put back to zero is its
+        // own declaration — never the tap thread's reset block, which the
+        // rebuild runs and which would start the loop over.
+        let refusalResets = superKeyServiceCode
+            .components(separatedBy: "mouseTapRefusals = 0").count - 1
+        expect(superKeyServiceCode.contains("?? (mouseTapRefusals == 1)")
+               && superKeyServiceCode.contains(
+                   "mouseTapRefusals = mouseTap == nil ? self.mouseTapRefusals + 1 : 0")
+               && refusalResets == 1,
+               "a refused mouse tap is worth one rebuild, and the count survives it")
+
         var noRepeatHoldState = SuperKeySupport.State()
         _ = noRepeatHoldState.decide(.triggerDown(
             isRepeat: false, hasPrimaryModifiers: false, timestamp: 6_000_000_000
@@ -14822,6 +15471,20 @@ struct MetricsTests {
             SettingsBackupSupport.formatVersionKey: 99,
             SettingsBackupSupport.settingsKey: [String: Any](),
         ]) == nil, "a future format version is rejected")
+        expect(SettingsBackupSupport.formatVersion(from: [SettingsBackupSupport.formatVersionKey: 1]) == 1
+                && SettingsBackupSupport.formatVersion(from: [SettingsBackupSupport.formatVersionKey: NSNumber(value: 1)]) == 1
+                && SettingsBackupSupport.formatVersion(from: [SettingsBackupSupport.formatVersionKey: "1"]) == 1
+                && SettingsBackupSupport.formatVersion(from: [SettingsBackupSupport.formatVersionKey: " 1 \n"]) == 1
+                && SettingsBackupSupport.formatVersion(from: [SettingsBackupSupport.formatVersionKey: "invalid"]) == nil,
+               "backup format version accepts integer, NSNumber and string representations")
+        let stringVersionBackup: [String: Any] = [
+            SettingsBackupSupport.formatVersionKey: "1",
+            SettingsBackupSupport.settingsKey: [
+                DefaultsKey.smoothScrollStep: 60,
+            ] as [String: Any],
+        ]
+        expect(SettingsBackupSupport.sanitizedSettings(from: stringVersionBackup)?[DefaultsKey.smoothScrollStep] as? Int == 60,
+               "a backup with a string-encoded format version restores correctly")
 
         // A backup file can be edited by hand, and a value of the wrong shape
         // would reach code that trusts its own settings.
@@ -15713,6 +16376,16 @@ struct MetricsTests {
                                                  available: ["app.chat", "action.a"])
                 == ["app.chat"],
                "the empty bar leads with the pins that still exist")
+        expect(CommandBarPreferences.listedPins(
+                    ["action.cleaningMode", "app.chat", "settings.cleaningMode"],
+                    present: ["app.chat"])
+                == ["app.chat"],
+               "an uninstalled feature is not listed as a pin")
+        expect(CommandBarPreferences.listedPins(
+                    ["action.cleaningMode", "app.gone"],
+                    present: ["action.cleaningMode"])
+                == ["action.cleaningMode", "app.gone"],
+               "an app that left this Mac still appears so its pin can be removed")
         expect(CommandBarPreferences.pinTieBreak < 700,
                "a pin breaks a tie and never jumps over a better match")
         expect(CommandBarPreferences.aliasHit("codex", query: "codex") == .exact

@@ -96,7 +96,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         ShelfService.shared.statusItemFrameProvider = { [weak self] in
             guard let item = self?.statusController.statusItem, item.isVisible,
                   let window = self?.statusController.button?.window else { return nil }
-            return window.frame
+            let frame = window.frame
+            guard StatusItemAnchorSupport.isTrustworthyStatusFrame(frame) else { return nil }
+            return frame
         }
 
         setUpPopover()
@@ -538,8 +540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// itself parks the window out of the visible area) the anchor takes over.
     private func frameStillDescribesMenuBar(_ anchor: PanelAnchor) -> Bool {
         guard let frame = anchor.button?.window?.frame else { return false }
-        return StatusItemAnchorSupport.isTrustworthyStatusFrame(
-            frame, screenFrames: NSScreen.screens.map(\.frame))
+        return StatusItemAnchorSupport.isTrustworthyStatusFrame(frame)
     }
 
     private func statusFrameNeedsAnchorOverride(_ anchor: PanelAnchor) -> Bool {
@@ -555,7 +556,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let screen = statusScreen(for: button)
         let statusFrame = button.window?.frame
         let frameIsSound = statusFrame.map {
-            StatusItemAnchorSupport.isTrustworthyStatusFrame($0, screenFrames: NSScreen.screens.map(\.frame))
+            StatusItemAnchorSupport.isTrustworthyStatusFrame($0)
         } ?? false
         if frameIsSound, statusFrame != nil {
             // Where the popover has just been placed is the anchor: with a
@@ -867,7 +868,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
             guard let self, self.popover.isShown else { return }
-            guard !PanelInteractionState.shared.keepsPopoverOpen else { return }
+            guard !PanelInteractionState.shared.preventsPopoverDismissal else { return }
             guard self.statusController.containsStatusItem(at: NSEvent.mouseLocation) == false else { return }
             self.closePopover()
         }
@@ -907,7 +908,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     private func shouldDismissPopover(forLocalEvent event: NSEvent) -> Bool {
-        guard !PanelInteractionState.shared.keepsPopoverOpen else { return false }
+        guard !PanelInteractionState.shared.preventsPopoverDismissal else { return false }
         guard event.window === settingsWindow,
               let settingsFrame = settingsWindow?.frame,
               let popoverFrame = popover.contentViewController?.view.window?.frame else {
@@ -923,7 +924,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
 
         guard popover.isShown,
-              PanelInteractionState.shared.keepsPopoverOpen,
+              PanelInteractionState.shared.viewKeepsPopoverOpen,
               isPlainPopoverHoldKey(event),
               let window = popover.contentViewController?.view.window else {
             return event
@@ -1062,7 +1063,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
-        popoverIsClosing || !PanelInteractionState.shared.keepsPopoverOpen
+        popoverIsClosing || !PanelInteractionState.shared.preventsPopoverDismissal
     }
 
     func popoverDidClose(_ notification: Notification) {
@@ -1083,7 +1084,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
         removePopoverDismissMonitor()
         endPopoverDriftCorrection()
-        PanelInteractionState.shared.keepsPopoverOpen = false
+        PanelInteractionState.shared.viewKeepsPopoverOpen = false
+        PanelInteractionState.shared.isPresentingPopoverModal = false
         popoverClosedAt = popoverIsSwitchingAnchor ? .distantPast : Date()
         popoverIsClosing = false
         runPopoverCloseCompletions()
@@ -1379,7 +1381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     private func positionSettingsWindow(_ window: NSWindow, force: Bool) {
         window.contentView?.layoutSubtreeIfNeeded()
-        let popoverWindow = popover.contentViewController?.view.window
+        let popoverWindow = popover.isShown ? popover.contentViewController?.view.window : nil
         let visible = (popoverWindow?.screen ?? window.screen)?.visibleFrame ?? NSScreen.pointerVisibleFrame
         let margin: CGFloat = 40
         let availableWidth = max(1, visible.width - margin)
@@ -1399,39 +1401,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         if let popoverFrame = popoverWindow?.frame,
            visible.intersects(popoverFrame),
            frame.intersects(popoverFrame) {
-            frame = settingsFrame(frame, avoiding: popoverFrame, in: visible)
+            let placement = SettingsWindowSupport.panelPlacement(
+                preferredFrame: frame, panelFrame: popoverFrame, visibleFrame: visible)
+            frame = placement.frame
+            if placement.closesPanel {
+                closePopover()
+            }
         } else if force {
             frame.origin.x = min(max(frame.origin.x, visible.minX + margin / 2), visible.maxX - width - margin / 2)
             frame.origin.y = min(max(frame.origin.y, visible.minY + margin / 2), visible.maxY - height - margin / 2)
         }
         window.setFrame(frame.integral, display: false)
-    }
-
-    private func settingsFrame(_ frame: NSRect, avoiding popoverFrame: NSRect, in visible: NSRect) -> NSRect {
-        let gap: CGFloat = 28
-        let margin: CGFloat = 20
-        var adjusted = frame
-
-        let leftX = popoverFrame.minX - gap - frame.width
-        let rightX = popoverFrame.maxX + gap
-        if popoverFrame.midX >= visible.midX, leftX >= visible.minX + margin {
-            adjusted.origin.x = min(frame.origin.x, leftX)
-        } else if popoverFrame.midX < visible.midX,
-                  rightX + frame.width <= visible.maxX - margin {
-            adjusted.origin.x = max(frame.origin.x, rightX)
-        } else {
-            let belowY = popoverFrame.minY - gap - frame.height
-            let aboveY = popoverFrame.maxY + gap
-            if belowY >= visible.minY + margin {
-                adjusted.origin.y = min(frame.origin.y, belowY)
-            } else if aboveY + frame.height <= visible.maxY - margin {
-                adjusted.origin.y = max(frame.origin.y, aboveY)
-            }
-        }
-
-        adjusted.origin.x = min(max(adjusted.origin.x, visible.minX + margin), visible.maxX - frame.width - margin)
-        adjusted.origin.y = min(max(adjusted.origin.y, visible.minY + margin), visible.maxY - frame.height - margin)
-        return adjusted
     }
 
     /// Rebuilds the menu bar item so the icon reappears when the OS has dropped it
