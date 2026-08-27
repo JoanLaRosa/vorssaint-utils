@@ -141,10 +141,7 @@ final class SuperKeyService: ObservableObject {
                 ?? (mouseTapRefusals == 1)
             return keyboardDead || mouseDead
         }
-        if deadTap {
-            stop()
-        }
-        if sourceChanged { stop() }
+        if deadTap || sourceChanged { stop() }
         start()
     }
 
